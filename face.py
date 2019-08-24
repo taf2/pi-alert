@@ -6,13 +6,19 @@ import numpy
 import time
 from gpiozero import MotionSensor
 from twilio.rest import Client
+from b2blaze import B2
 
 account_sid = os.environ.get('account_sid')
 auth_token  = os.environ.get('auth_token')
+b2_id       = os.environ.get('b2_id')
+b2_app_key  = os.environ.get('b2_app_key')
 root        = os.path.dirname(os.path.realpath(__file__))
 face_model = os.path.join(root, 'haarcascade_frontalface_default.xml')
 print "Face model path: " + face_model
 last_face_detected = 0
+
+def upload_to_b2(image_path):
+  print "uploading result"
 
 
 def check_for_face():
@@ -54,10 +60,18 @@ def check_for_face():
 
             cv2.imwrite('result.jpg', image)
 
+            b2 = B2(key_id=b2_id, application_key=b2_app_key)
+            bucket = b2.buckets.get('monitors')
+
+            image_file = open('result.jpg', 'rb')
+            new_file = bucket.files.upload(contents=image_file, file_name='capture/result.jpg')
+            print new_file.url
+
             client = Client(account_sid, auth_token)
 
             message = client.messages.create(to = '+14109806647',
                                              from_= '+15014564510',
+                                             media_url=[new_file.url],
                                              body =  "I detected a face in the basement")
 
     return len(faces)
