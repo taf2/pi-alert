@@ -73,6 +73,7 @@ def check_for_face():
                                              from_= '+15014564510',
                                              media_url=[new_file.url],
                                              body =  "I detected a face in the basement")
+            print message.sid
 
     return len(faces)
 
