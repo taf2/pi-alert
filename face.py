@@ -60,20 +60,20 @@ def check_for_face():
 
             cv2.imwrite('result.jpg', image)
 
-            b2 = B2(key_id=b2_id, application_key=b2_app_key)
-            bucket = b2.buckets.get('monitors')
+            #b2 = B2(key_id=b2_id, application_key=b2_app_key)
+            #bucket = b2.buckets.get('monitors')
 
-            image_file = open('result.jpg', 'rb')
-            new_file = bucket.files.upload(contents=image_file, file_name='capture/result.jpg')
-            print new_file.url
+            #image_file = open('result.jpg', 'rb')
+            #new_file = bucket.files.upload(contents=image_file, file_name='capture/result.jpg')
+            #print new_file.url
 
-            client = Client(account_sid, auth_token)
+            #client = Client(account_sid, auth_token)
 
-            message = client.messages.create(to = '+14109806647',
-                                             from_= '+15014564510',
-                                             media_url=[new_file.url],
-                                             body =  "I detected a face in the basement")
-            print message.sid
+            #message = client.messages.create(to = '+14109806647',
+            #                                 from_= '+15014564510',
+            #                                 media_url=[new_file.url],
+            #                                 body =  "I detected a face in the basement")
+            #print message.sid
 
     return len(faces)
 
