@@ -1,0 +1,15 @@
+[Unit]
+Description=pi monitor
+After=syslog.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/home/pi/pi-alert/
+ExecStart=/home/pi/pi-alert/monitor
+StandardOutput=syslog
+StandardError=syslog
+
+[Install]
+WantedBy=multi-user.target
