@@ -6,6 +6,7 @@ import io
 import picamera
 import logging
 import socketserver
+import http.server
 from threading import Condition
 from http import server
 
@@ -29,6 +30,8 @@ PAGE="""\
     <main role="main">
       <a class='btn btn-primary' id="watch-video-feed">Check Video Feed</a>
       <center id="video-feed"></center>
+      <h3>Recent Face Detection</h3>
+      <img src="result.jpg"/>
     </main>
     <script src="https://code.jquery.com/jquery-3.4.1.slim.min.js"
             integrity="sha384-J6qa4849blE2+poT4WnyKhv5vZF5SrPo0iEjwBvKU7imGFAV0wwj1yYfoRSJoZ+n"
@@ -131,6 +134,15 @@ class StreamingHandler(server.BaseHTTPRequestHandler):
             content = PAGE.encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
+            self.send_header('Content-Length', len(content))
+            self.end_headers()
+            self.wfile.write(content)
+        elif self.path == '/result.jpg':
+            image = open("result.jpg", "rb")
+            content = image.read()
+            image.close()
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/jpeg')
             self.send_header('Content-Length', len(content))
             self.end_headers()
             self.wfile.write(content)
