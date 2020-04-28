@@ -185,6 +185,8 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     def stop_camera(self):
         print("stop camera")
         self.camera.stop_recording()
+        self.camera.close()
+        self.camera = None
         self.camera_on = 0
 
 try:
