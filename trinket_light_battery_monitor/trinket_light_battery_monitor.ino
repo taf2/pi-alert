@@ -1,4 +1,4 @@
-/*
+  /*
   Pulse
   Pulses the internal LED to demonstrate the analogWrite function
 
@@ -16,9 +16,10 @@
 */
 #define RELAY 3
 
-#define LED 1 // pulse 'digital' pin 1 - AKA the built in red LED
+#define VLED A2 // the LED that we can see through the camera lense
+#define LED 1 // pulse 'digital' pin 1 - AKA the built in red LED  - this just appears inside the box  
 #define PHOTOCELL A1 // CdS photocell connected to this ANALOG pin #
-#define LOWBAT A2 // white wire from LB pin on powerboost 1000 to pin A0 on trinket
+#define LOWBAT 0 // white wire from LB pin on powerboost 1000 to pin A0 on trinket
 #define RPI A0 // single to the raspberry pi pin 37 that it should start the shutdown sequence
 // the setup routine runs once when you press reset:
 void setup() {
@@ -26,6 +27,8 @@ void setup() {
 
   // initialize the digital pin as an output.
   pinMode(LED, OUTPUT);
+  pinMode(VLED, OUTPUT);
+
   pinMode(RPI, OUTPUT);
 
   pinMode(RELAY, OUTPUT);
@@ -35,6 +38,8 @@ void setup() {
   digitalWrite(RPI, HIGH); // initially the pi should be off
   digitalWrite(RELAY, LOW); // initially the pi power should be off
 
+  digitalWrite(LED, 0); // we have light but the battery appears low start charging
+  digitalWrite(VLED, 0); // we have light but the battery appears low start charging
 }
 
 short litcount = 0; // keep track of many seconds of good light we have before changing state.
@@ -51,6 +56,8 @@ void loop() {
     delayFor = 1000; // at the first sign of any light start checking at 1 second interval again.
     if (lowbat == HIGH) {
       digitalWrite(LED, 254); // we have light but the battery appears low start charging
+      digitalWrite(VLED, 0); // we have light but the battery appears low start charging
+
       delay(1000);
       return;
     }
@@ -62,6 +69,8 @@ void loop() {
       digitalWrite(RELAY, HIGH); // ensure ourpower to the pi is ON
     
       digitalWrite(LED, 0);  // PWM the LED from 255 (max) to 0
+      digitalWrite(VLED, 254);  // PWM the LED from 255 (max) to 0
+
     }
   } else {
     ++dimcount;
@@ -69,10 +78,12 @@ void loop() {
       litcount = 0; // it appears dark 
       if (dimcount < 30) {
         digitalWrite(LED, 254);
+        digitalWrite(VLED, 128);
         digitalWrite(RPI, HIGH);
       }
       if (dimcount > 30) {
         digitalWrite(LED, 0);  // disable the led here to save power
+        digitalWrite(VLED, 0);  // disable the led here to save power
 
         // send signal here to pi to shutdown proper
         // after 30 more seconds cut the power
