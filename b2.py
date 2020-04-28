@@ -8,4 +8,4 @@ bucket = b2.buckets.get('monitors')
 
 image_file = open('result.jpg', 'rb')
 new_file = bucket.files.upload(contents=image_file, file_name='capture/result.jpg')
-print new_file.url
+print(new_file.url)
