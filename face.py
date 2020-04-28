@@ -14,17 +14,42 @@ auth_token  = os.environ.get('auth_token')
 b2_id       = os.environ.get('b2_id')
 b2_app_key  = os.environ.get('b2_app_key')
 root        = os.path.dirname(os.path.realpath(__file__))
-face_model = os.path.join(root, 'haarcascade_frontalface_default.xml')
-print "Face model path: " + face_model
+face_model  = os.path.join(root, 'haarcascade_frontalface_default.xml')
+
+print("Face model path: " + face_model)
 last_face_detected = 0
 
-def upload_to_b2(image_path):
-  print "uploading result"
+def alert_face_detection(faces, image):
+    for (x,y,w,h) in faces:
+        cv2.rectangle(image, (x,y), (x+w,y+h), (255,255,0),2)
+
+    cv2.imwrite('result.jpg', image)
+    b2 = B2(key_id=b2_id, application_key=b2_app_key)
+    bucket = b2.buckets.get('monitors')
+
+    image_file = open('result.jpg', 'rb')
+    new_file = bucket.files.upload(contents=image_file, file_name='capture/result.jpg')
+    print(new_file.url)
+    image_file.close()
+
+    client = Client(account_sid, auth_token)
+    message = client.messages.create(to = '+14109806647',
+                                     from_= '+15014564510',
+                                     media_url=[new_file.url],
+                                     body =  "I detected a face in the basement")
 
 
 def check_for_face():
     global last_face_detected 
-    print "Checking for faces..."
+
+    time_of_motion = time.time()
+    time_since_last_motion_with_detection = time_of_motion - last_face_detected
+
+    # if we detected a face within the last 60 seconds and we're seeing motion again skip detection until later
+    if time_since_last_motion_with_detection < 60:
+        return
+
+    print("Checking for faces...")
 
     stream = io.BytesIO()
 
@@ -49,24 +74,22 @@ def check_for_face():
 
         time_since_last_detection = time_of_detection - last_face_detected
 
-        print "Found "+str(len(faces))+" faces(s)"
+        print("Found "+str(len(faces))+" faces(s)")
 
         if time_since_last_detection > 60:
             last_face_detected = time_of_detection
 
-            print "It's been over 1 minute since the last detection alert"
+            print("It's been over 1 minute since the last detection alert")
 
-            for (x,y,w,h) in faces:
-                cv2.rectangle(image, (x,y), (x+w,y+h), (255,255,0),2)
+            alert_face_detection(faces, image)
 
-            cv2.imwrite('result.jpg', image)
 
             #b2 = B2(key_id=b2_id, application_key=b2_app_key)
             #bucket = b2.buckets.get('monitors')
 
             #image_file = open('result.jpg', 'rb')
             #new_file = bucket.files.upload(contents=image_file, file_name='capture/result.jpg')
-            #print new_file.url
+            #print(new_file.url)
 
             #client = Client(account_sid, auth_token)
 
@@ -74,7 +97,7 @@ def check_for_face():
             #                                 from_= '+15014564510',
             #                                 media_url=[new_file.url],
             #                                 body =  "I detected a face in the basement")
-            #print message.sid
+            #print(message.sid)
 
     return len(faces)
 
@@ -87,3 +110,5 @@ while True:
     #print("we detected motion!")
 
     check_for_face()
+
+    time.sleep(2) # avoid pegging the cpu
