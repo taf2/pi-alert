@@ -5,7 +5,9 @@ import picamera
 import cv2
 import numpy
 import time
-from gpiozero import MotionSensor
+#from gpiozero import MotionSensor
+import RPi.GPIO as GPIO
+
 from twilio.rest import Client
 from b2blaze import B2
 
@@ -18,6 +20,10 @@ face_model  = os.path.join(root, 'haarcascade_frontalface_default.xml')
 
 print("Face model path: " + face_model)
 last_face_detected = 0
+
+GPIO.setmode(GPIO.BCM)
+
+GPIO.setup(23, GPIO.IN) #PIR
 
 def alert_face_detection(faces, image):
     for (x,y,w,h) in faces:
@@ -101,14 +107,16 @@ def check_for_face():
 
     return len(faces)
 
-# we have pin 4 plugged into the motion sensor on our pi
-pir    = MotionSensor(4)
-
-while True:
-    #print("waiting for motion to wake me up")
-    pir.wait_for_motion()
-    #print("we detected motion!")
-
-    check_for_face()
-
+try:
+  while True:
     time.sleep(2) # avoid pegging the cpu
+    print("waiting for motion to wake me up")
+    if GPIO.input(23):
+      #pir.wait_for_motion()
+      print("we detected motion!")
+
+      check_for_face()
+
+
+except:
+    GPIO.cleanup()
