@@ -5,6 +5,8 @@
 # determine if anything interesting was in the stream and save and report what was found
 # pip3 install walrus
 # see https://github.com/coleifer/walrus/blob/master/examples/work_queue.py example work queue we'll model this after
+import sys, traceback
+
 from collections import namedtuple
 import os
 from functools import wraps
@@ -83,10 +85,11 @@ class TaskQueue(object):
         return inner
 
     def deserialize_message(self, message):
-        task_name, args, kwargs = json.loads(message)
+        task_name, args = json.loads(message)
         if task_name not in self._tasks:
             raise Exception('task "%s" not registered with queue.')
-        return self._tasks[task_name], args, kwargs
+        print("task_name: %s" % task_name)
+        return self._tasks[task_name], args
 
     def serialize_message(self, task, args=None, kwargs=None):
         return json.dumps((task.__name__, args, kwargs))
@@ -158,23 +161,35 @@ class TaskWorker(object):
                 # {stream_key: [(message id, data), ...]}
                 for stream_key, message_list in resp:
                     task_id, data = message_list[0]
+                    print("received task: %s with data %s" % (task_id, data))
                     self.execute(task_id.decode('utf-8'), data[b'task'])
 
     def execute(self, task_id, message):
+        print("received task: %s with data %s" % (task_id, message))
         # Deserialize the task message, which consists of the task name, args
         # and kwargs. The task function is then looked-up by name and called
         # using the given arguments.
-        task, args, kwargs = self.queue.deserialize_message(message)
-        try:
-            ret = task(*(args or ()), **(kwargs or {}))
+        try: 
+          task, args = self.queue.deserialize_message(message)
+          try:
+              ret = task(args)
+          except Exception as exc:
+              print("oh no what? %s" % str(exc))
+              traceback.print_exc(file=sys.stdout)
+
+              # On failure, we'll store a special "TaskError" as the result. This
+              # will signal to the user that the task failed with an exception.
+              self.queue.store_result(task_id, TaskError(str(exc)))
+          else:
+              # Store the result and acknowledge (ACK) the message.
+              self.queue.store_result(task_id, ret)
+              self.queue.stream.ack(task_id)
         except Exception as exc:
-            # On failure, we'll store a special "TaskError" as the result. This
-            # will signal to the user that the task failed with an exception.
-            self.queue.store_result(task_id, TaskError(str(exc)))
-        else:
-            # Store the result and acknowledge (ACK) the message.
-            self.queue.store_result(task_id, ret)
-            self.queue.stream.ack(task_id)
+          print("oh no what? %s" % str(exc))
+          traceback.print_exc(file=sys.stdout)
+
+          # parse error just ack  and move on
+          self.queue.stream.ack(task_id)
 
 
 class TaskResultWrapper(object):
@@ -211,16 +226,16 @@ if __name__ == '__main__':
     queue = TaskQueue(db)
 
     @queue.task
-    def object_detect(node_name, node_video_url):
+    def object_detect(task_data):
+      node_name      = task_data['name']
+      node_video_url = task_data['url']
+
       # fetch from the node's ip the video file
       # use opencv to do object detection
       downloaded_video_path = "/tmp/video.mp4"
 
-      detected_human = False
-      detected_car = False
-
       with urllib.request.urlopen(node_video_url) as response:
-        download_file_handle = open(downloaded_video_path, "w")
+        download_file_handle = open(downloaded_video_path, "wb")
         download_file_handle.write(response.read())
         download_file_handle.close()
 
@@ -228,6 +243,17 @@ if __name__ == '__main__':
       cap = cv2.VideoCapture(downloaded_video_path)
       net = cv2.dnn.readNetFromCaffe(ObjDetect_prototxt, ObjDetect_weights)
       out = None;
+
+      detected_human = 0
+      detected_car = 0
+
+      # this is a rather time consuming high cpu work load so to reduce this we'll only 
+      # scan upto max_check_frames and we'll try to evenly distribute the checks to frames such that we analysis
+      # a good amount of the 10-12 second video clip capture that was sent to us...
+      frame_count = 0
+      checked_frames = 0
+      max_check_frames = 50
+
       try:
         while True:
           # Capture frame-by-frame
@@ -235,71 +261,80 @@ if __name__ == '__main__':
           if ret != True:
             break
 
-          frame_resized = cv2.resize(frame,(300,300)) # resize frame for prediction
 
-          # MobileNet requires fixed dimensions for input image(s)
-          # so we have to ensure that it is resized to 300x300 pixels.
-          # set a scale factor to image because network the objects has differents size. 
-          # We perform a mean subtraction (127.5, 127.5, 127.5) to normalize the input;
-          # after executing this command our "blob" now has the shape:
-          # (1, 3, 300, 300)
-          blob = cv2.dnn.blobFromImage(frame_resized, 0.007843, (300, 300), (127.5, 127.5, 127.5), False)
-          #Set to network the input blob 
-          net.setInput(blob)
-          #Prediction of network
-          detections = net.forward()
+          frame_count += 1
+          if frame_count % 3 == 1 and checked_frames < max_check_frames:
+            print("check frames: %d" % frame_count)
+            checked_frames += 1
 
-          #Size of frame resize (300x300)
-          cols = frame_resized.shape[1] 
-          rows = frame_resized.shape[0]
+            frame_resized = cv2.resize(frame,(300,300)) # resize frame for prediction
 
-          #For get the class and location of object detected, 
-          # There is a fix index for class, location and confidence
-          # value in @detections array .
-          for i in range(detections.shape[2]):
-            confidence = detections[0, 0, i, 2] #Confidence of prediction 
-            if confidence > args.thr: # Filter prediction 
-              class_id = int(detections[0, 0, i, 1]) # Class label
+            # MobileNet requires fixed dimensions for input image(s)
+            # so we have to ensure that it is resized to 300x300 pixels.
+            # set a scale factor to image because network the objects has differents size. 
+            # We perform a mean subtraction (127.5, 127.5, 127.5) to normalize the input;
+            # after executing this command our "blob" now has the shape:
+            # (1, 3, 300, 300)
+            blob = cv2.dnn.blobFromImage(frame_resized, 0.007843, (300, 300), (127.5, 127.5, 127.5), False)
+            #Set to network the input blob 
+            net.setInput(blob)
+            #Prediction of network
+            detections = net.forward()
 
-              # Object location 
-              xLeftBottom = int(detections[0, 0, i, 3] * cols) 
-              yLeftBottom = int(detections[0, 0, i, 4] * rows)
-              xRightTop   = int(detections[0, 0, i, 5] * cols)
-              yRightTop   = int(detections[0, 0, i, 6] * rows)
-              
-              # Factor for scale to original size of frame
-              heightFactor = frame.shape[0]/300.0  
-              widthFactor = frame.shape[1]/300.0 
-              # Scale object detection to frame
-              xLeftBottom = int(widthFactor * xLeftBottom) 
-              yLeftBottom = int(heightFactor * yLeftBottom)
-              xRightTop   = int(widthFactor * xRightTop)
-              yRightTop   = int(heightFactor * yRightTop)
-              # Draw location of object  
-              cv2.rectangle(frame, (xLeftBottom, yLeftBottom), (xRightTop, yRightTop),
-                            (0, 255, 0))
+            #Size of frame resize (300x300)
+            cols = frame_resized.shape[1] 
+            rows = frame_resized.shape[0]
 
-              # Draw label and confidence of prediction in frame resized
-              if class_id in classNames:
-                label = classNames[class_id] + ": " + str(confidence)
-                labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+            #For get the class and location of object detected, 
+            # There is a fix index for class, location and confidence
+            # value in @detections array .
+            for i in range(detections.shape[2]):
+              confidence = detections[0, 0, i, 2] #Confidence of prediction 
+              if confidence > ObjDetect_thr: # Filter prediction 
+                class_id = int(detections[0, 0, i, 1]) # Class label
 
-                yLeftBottom = max(yLeftBottom, labelSize[1])
-                cv2.rectangle(frame, (xLeftBottom, yLeftBottom - labelSize[1]),
-                                     (xLeftBottom + labelSize[0], yLeftBottom + baseLine),
-                                     (255, 255, 255), cv2.FILLED)
-                cv2.putText(frame, label, (xLeftBottom, yLeftBottom),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0))
+                # Object location 
+                xLeftBottom = int(detections[0, 0, i, 3] * cols) 
+                yLeftBottom = int(detections[0, 0, i, 4] * rows)
+                xRightTop   = int(detections[0, 0, i, 5] * cols)
+                yRightTop   = int(detections[0, 0, i, 6] * rows)
+                
+                # Factor for scale to original size of frame
+                heightFactor = frame.shape[0]/300.0  
+                widthFactor = frame.shape[1]/300.0 
+                # Scale object detection to frame
+                xLeftBottom = int(widthFactor * xLeftBottom) 
+                yLeftBottom = int(heightFactor * yLeftBottom)
+                xRightTop   = int(widthFactor * xRightTop)
+                yRightTop   = int(heightFactor * yRightTop)
+                # Draw location of object  
+                cv2.rectangle(frame, (xLeftBottom, yLeftBottom), (xRightTop, yRightTop),
+                              (0, 255, 0))
 
-                print(label) #print class and confidence
-                if label == 'person':
-                  detected_human = True
+                # Draw label and confidence of prediction in frame resized
+                if class_id in ObjDetect_classNames:
+                  label = ObjDetect_classNames[class_id] + ": " + str(confidence)
+                  labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
 
-                if label == 'car':
-                  detected_car = True
+                  yLeftBottom = max(yLeftBottom, labelSize[1])
+                  cv2.rectangle(frame, (xLeftBottom, yLeftBottom - labelSize[1]),
+                                       (xLeftBottom + labelSize[0], yLeftBottom + baseLine),
+                                       (255, 255, 255), cv2.FILLED)
+                  cv2.putText(frame, label, (xLeftBottom, yLeftBottom),
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0))
 
-          #cv2.namedWindow("frame", cv2.WINDOW_NORMAL)
-          #cv2.imshow("frame", frame)
+                  print(label) #print class and confidence
+                  # person: 0.9904131
+                  if ObjDetect_classNames[class_id] == 'person':
+                    detected_human = 1
+
+                  if ObjDetect_classNames[class_id] == 'car':
+                    detected_car = 1
+
+            #cv2.namedWindow("frame", cv2.WINDOW_NORMAL)
+            #cv2.imshow("frame", frame)
+          else:
+            print("skip analysis of frame: %d" % frame_count)
 
           if out == None:
             fshape = frame.shape
@@ -308,7 +343,7 @@ if __name__ == '__main__':
             fwidth = fshape[1]
             print(fwidth, fheight)
 
-            out = cv2.VideoWriter('outpy.mp4', fourcc, 25.0, (fwidth,fheight))
+            out = cv2.VideoWriter('/tmp/video-boxed.mp4', fourcc, 25.0, (fwidth,fheight))
 
           out.write(frame)
 
@@ -317,19 +352,23 @@ if __name__ == '__main__':
       except KeyboardInterrupt:
         print("Quit")
       finally:
+        print("cleaning up input and output")
         out.release()
         cap.release()
+
       # if we detected a human or car alert
       # archive all recordings (we need that ssd drive)
+      print("finished analysis : %d %d" % (detected_human, detected_car))
 
-      if detected_human == True:
+      if detected_human == 1:
         print("Alert a human entered")
         # TODO: do face detection on the human frames and see if it's a human we know?
         b2 = B2(key_id=b2_id, application_key=b2_app_key)
         bucket = b2.buckets.get('monitors')
+        os.system("/usr/bin/ffmpeg -y -i /tmp/video-boxed.mp4 -vf scale=320:240 /tmp/video-sized.mp4")
 
-        image_file = open('outpy.mp4', 'rb')
-        new_file = bucket.files.upload(contents=image_file, file_name='capture/outpy.mp4')
+        image_file = open('/tmp/video-sized.mp4', 'rb')
+        new_file = bucket.files.upload(contents=image_file, file_name='capture/person.mp4')
         print(new_file.url)
         image_file.close()
 
@@ -337,9 +376,27 @@ if __name__ == '__main__':
         message = client.messages.create(to = '+14109806647',
                                          from_= '+15014564510',
                                          media_url=[new_file.url],
-                                         body =  "I detected a human")
-      if detected_car == True:
+                                         body =  "I detected a human: %s" % new_file.url)
+      if detected_car == 1:
         print("Alert a car entered")
+        # TODO: is it one of our cars?
+        b2 = B2(key_id=b2_id, application_key=b2_app_key)
+        bucket = b2.buckets.get('monitors')
+        os.system("/usr/bin/ffmpeg -y -i /tmp/video-boxed.mp4 -vf scale=320:240 /tmp/video-sized.mp4")
+        # ffmpeg -i output.mp4 -vf scale=320:240 output_320.mp4
+
+        image_file = open('/tmp/video-sized.mp4', 'rb')
+        new_file = bucket.files.upload(contents=image_file, file_name='capture/car.mp4')
+        print(new_file.url)
+        image_file.close()
+
+        client = Client(account_sid, auth_token)
+        message = client.messages.create(to = '+14109806647',
+                                         from_= '+15014564510',
+                                         media_url=[new_file.url],
+                                         body =  "I detected a car: %s" % new_file.url)
+
+      print("job done") 
 
     # start with 1 job processor for now
     try:
