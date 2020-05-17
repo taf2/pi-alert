@@ -6,6 +6,8 @@
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
+#include <hiredis/hiredis.h>
+
 
 #include <wiringPi.h>
 
@@ -16,12 +18,17 @@
 #define GREENLED 31
 #define PIRPIN  7
 
+#define MAX_CAPTURES 256
+#define REDIS_HOST "192.168.2.50"
+#define VIDEO_COUNTER "/home/pi/video.counter"
+
 // a value between 1 and 10
 // if not init we'll default to 1
-int videoPoint = 0;
+static int videoPoint = 0;
+static char buffer[128];
 
 void setup() {
-  FILE *file = fopen("/home/pi/video.counter", "rb");
+  FILE *file = fopen(VIDEO_COUNTER, "rb");
 
   if (file) {
     fread(&videoPoint, sizeof(int), 1, file);
@@ -42,10 +49,39 @@ void setup() {
   digitalWrite(GREENLED, HIGH);
 }
 
-void loop() {
+void captureRecording(int videoPoint) {
+  // capture 10 seconds of video
+  digitalWrite(REDLED, HIGH);
+  memset(buffer,'\0',127);
+  snprintf(buffer, 127, "/usr/bin/raspivid -o /var/www/html/video%d.h264 -t 10000", videoPoint);
+  system(buffer);
+  digitalWrite(REDLED, LOW);
+  // convert the video to mp4 for easier playback
+  digitalWrite(BLUELED, HIGH);
+  memset(buffer,'\0',127);
+  snprintf(buffer, 127, "/usr/bin/ffmpeg -y -framerate 24 -i /var/www/html/video%d.h264 -c copy /var/www/html/video%d.mp4", videoPoint, videoPoint);
+  system(buffer);
+  digitalWrite(BLUELED, LOW);
+}
+
+void advanceVideoPoint(int* videoPoint) {
   FILE *file = NULL;
+  ++(*videoPoint);
+  if ((*videoPoint) > MAX_CAPTURES) {
+    *videoPoint = 0; // wrap around
+  }
+
+  file = fopen(VIDEO_COUNTER, "wb");
+  if (file) {
+    fwrite(videoPoint, sizeof(int), 1, file);
+    fclose(file);
+  }
+  file = NULL;
+}
+
+
+void loop() {
   int pwroff = digitalRead(PWROFF); 
-  char buffer[128];
   printf("pwroff reading: %d\n",  pwroff);
 
   if (pwroff) {
@@ -61,27 +97,8 @@ void loop() {
     digitalWrite(GREENLED, LOW);
   } else {
     printf("Alarm %d!\n", videoPoint);
-    digitalWrite(REDLED, HIGH);
-    digitalWrite(GREENLED, HIGH);
-    // capture 10 seconds of video
-    system("/usr/bin/raspivid -o /home/pi/video.h264 -t 10000");
-    digitalWrite(REDLED, LOW);
-    digitalWrite(BLUELED, HIGH);
-    snprintf(buffer, 127, "/usr/bin/ffmpeg -y -framerate 24 -i /home/pi/video.h264 -c copy /var/www/html/video%d.mp4", videoPoint);
-    system(buffer);
-    digitalWrite(BLUELED, LOW);
-
-    ++videoPoint;
-    if (videoPoint > 9) {
-      videoPoint = 0; // wrap around
-    }
-
-    file = fopen("/home/pi/video.counter", "wb");
-    if (file) {
-      fwrite(&videoPoint, sizeof(int), 1, file);
-      fclose(file);
-    }
-    file = NULL;
+    captureRecording(videoPoint);
+    advanceVideoPoint(&videoPoint);
   }
 
 }

@@ -24,3 +24,22 @@ sudo apt-get install libqt4-test
 sudo apt-get install python3-picamera
 
 service is stream-http.py
+
+
+# Moving to all C and monitor.c and a client server setup
+
+# deps
+sudo apt install libhiredis-dev
+sudo apt install ffmpeg
+
+# design
+We are a single node in a many node system our master node/s will have redis (sentinels)
+
+When we detect an object or a sensor is triggered we'll do some LED indicators for 
+on site troubleshooting but our primary focus is to capture video.  We'll record say
+10 seconds on trigger and then we'll use our redis connection to write into a redis
+stream
+
+Our master will read from the stream which will tell it to grab files from our local 
+nginx server.  We'll keep a range of files and they'll just loop overwriting them over
+time as to keep a constant disk on the nodes
