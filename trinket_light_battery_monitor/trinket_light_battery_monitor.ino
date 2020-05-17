@@ -1,8 +1,8 @@
-  /*
+    /*
   Pulse
   Pulses the internal LED to demonstrate the analogWrite function
 
-  This example code is in the public domain.
+  This example code is in the public domain.  
 
   To upload to your Gemma or Trinket:
   1) Select the proper board from the Tools->Board Menu
@@ -23,8 +23,6 @@
 #define RPI A0 // single to the raspberry pi pin 37 that it should start the shutdown sequence
 // the setup routine runs once when you press reset:
 void setup() {
-  digitalWrite(RELAY, HIGH);
-
   // initialize the digital pin as an output.
   pinMode(LED, OUTPUT);
   pinMode(VLED, OUTPUT);
@@ -43,7 +41,7 @@ void setup() {
 }
 
 short litcount = 0; // keep track of many seconds of good light we have before changing state.
-short dimcount = 0; // keep track of how many seconds we are dim before changing state.
+short dimcount = 31; // keep track of how many seconds we are dim before changing state.
 short delayFor = 1000; // default pause for 1 second when sleeping for the night we'll increase the delay to 1 minute
 
 // the loop routine runs over and over again forever:
@@ -51,12 +49,12 @@ void loop() {
   int lowbat = digitalRead(LOWBAT); // get value of battery reading  HIGH indicates low battery LOW indicates plenty of battery
   int light  = analogRead(PHOTOCELL); // returns values between 0 and 1023
 
-  if (light > 100) { // plenty of sun light & plenty of battery power
+  if (light > 10) { // plenty of sun light & plenty of battery power
     ++litcount;
     delayFor = 1000; // at the first sign of any light start checking at 1 second interval again.
     if (lowbat == HIGH) {
-      digitalWrite(LED, 254); // we have light but the battery appears low start charging
-      digitalWrite(VLED, 0); // we have light but the battery appears low start charging
+      digitalWrite(LED, 12); // we have light but the battery appears low start charging
+      digitalWrite(VLED, 12); // we have light but the battery appears low start charging
 
       delay(1000);
       return;
@@ -69,19 +67,28 @@ void loop() {
       digitalWrite(RELAY, HIGH); // ensure ourpower to the pi is ON
     
       digitalWrite(LED, 0);  // PWM the LED from 255 (max) to 0
-      digitalWrite(VLED, 254);  // PWM the LED from 255 (max) to 0
+      digitalWrite(VLED, 64);  // PWM the LED from 255 (max) to 0
 
+    } else {
+      if (litcount % 2 == 0) {
+        digitalWrite(VLED, 0);
+      } else {
+        digitalWrite(VLED, 64);
+      }
     }
   } else {
     ++dimcount;
     if (dimcount > 10) { // it appears we are low on sun light
       litcount = 0; // it appears dark 
       if (dimcount < 30) {
-        digitalWrite(LED, 254);
-        digitalWrite(VLED, 128);
+        digitalWrite(LED, 64);
+        if (dimcount % 3 == 0) {
+          digitalWrite(VLED, 0);
+        } else {
+          digitalWrite(VLED, 64);
+        }
         digitalWrite(RPI, HIGH);
-      }
-      if (dimcount > 30) {
+      } else if (dimcount > 30) {
         digitalWrite(LED, 0);  // disable the led here to save power
         digitalWrite(VLED, 0);  // disable the led here to save power
 
@@ -89,8 +96,15 @@ void loop() {
         // after 30 more seconds cut the power
         digitalWrite(RELAY, LOW); // it's been dark for 10 seconds power off
 
-        dimcount = 0;
+        dimcount = 31;
         //delayFor = 60000; // start sleeping for 1 minute before next wake cycle
+      }
+    } else {
+      // dim so mod dimcount to blink vled as a warming that we're about to start the shutdown signal
+      if (dimcount % 2 == 0) {
+        digitalWrite(VLED, 0);
+      } else {
+        digitalWrite(VLED, 64);
       }
     }
   }

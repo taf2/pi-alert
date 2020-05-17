@@ -1,14 +1,22 @@
-#define LED A2 // pin 4 a4
+   #define LED A2 // pin 4 a4
 
+int on = 1;
 
 void setup() {
-  // put your setup code here, to run once:
   pinMode(LED, OUTPUT);
-      digitalWrite(LED, 254); // we have light but the battery appears low start charging
+  digitalWrite(LED, 254); // we have light but the battery appears low start charging
 
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
 
+  if (on) {
+      digitalWrite(LED, 254); // we have light but the battery appears low start charging
+      on = 0;
+  } else {
+      digitalWrite(LED, 0); // we have light but the battery appears low start charging
+      on = 1;
+  }
+
+  delay(2000);
 }

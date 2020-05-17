@@ -25,7 +25,6 @@ sudo apt-get install python3-picamera
 
 service is stream-http.py
 
-
 # Moving to all C and monitor.c and a client server setup
 
 # deps
@@ -43,3 +42,8 @@ stream
 Our master will read from the stream which will tell it to grab files from our local 
 nginx server.  We'll keep a range of files and they'll just loop overwriting them over
 time as to keep a constant disk on the nodes
+
+
+# servos
+sudo apt-get install libffi-dev
+pip3 install PCA9685-driver

@@ -7,9 +7,11 @@ import numpy
 import time
 #from gpiozero import MotionSensor
 import RPi.GPIO as GPIO
-
 from twilio.rest import Client
 from b2blaze import B2
+
+PIR_PIN = 4 # physical pin 7 and wiring pin 7, BCM 4
+SERVO_PIN = 18 # physical pin 12 wiring pin 1, BCM 18
 
 account_sid = os.environ.get('account_sid')
 auth_token  = os.environ.get('auth_token')
@@ -24,10 +26,16 @@ last_face_detected = 0
 GPIO.setmode(GPIO.BCM)
 
 GPIO.setup(23, GPIO.IN) #PIR
+WIDTH  = 640
+HEIGHT = 480
 
 def alert_face_detection(faces, image):
     for (x,y,w,h) in faces:
         cv2.rectangle(image, (x,y), (x+w,y+h), (255,255,0),2)
+
+    face_one = faces[0]
+
+    (x,y,w,h) = face_one
 
     cv2.imwrite('result.jpg', image)
     b2 = B2(key_id=b2_id, application_key=b2_app_key)
@@ -43,6 +51,14 @@ def alert_face_detection(faces, image):
                                      from_= '+15014564510',
                                      media_url=[new_file.url],
                                      body =  "I detected a face in the basement")
+
+def move_to_face(angle):
+  p = GPIO.PWM(PIN, 50)
+  p.start(0)
+  p.ChangeDutyCycle(2 + (angle/18))
+  time.sleep(0.5)
+  p.ChangeDutyCycle(0)
+  p.stop()
 
 
 def check_for_face():
@@ -60,7 +76,7 @@ def check_for_face():
     stream = io.BytesIO()
 
     with picamera.PiCamera() as camera:
-        camera.resolution = (320, 240)
+        camera.resolution = (WIDTH, HEIGHT)
         camera.capture(stream, format='jpeg')
 
     buff = numpy.fromstring(stream.getvalue(), dtype=numpy.uint8)
@@ -89,34 +105,36 @@ def check_for_face():
 
             alert_face_detection(faces, image)
 
-
-            #b2 = B2(key_id=b2_id, application_key=b2_app_key)
-            #bucket = b2.buckets.get('monitors')
-
-            #image_file = open('result.jpg', 'rb')
-            #new_file = bucket.files.upload(contents=image_file, file_name='capture/result.jpg')
-            #print(new_file.url)
-
-            #client = Client(account_sid, auth_token)
-
-            #message = client.messages.create(to = '+14109806647',
-            #                                 from_= '+15014564510',
-            #                                 media_url=[new_file.url],
-            #                                 body =  "I detected a face in the basement")
-            #print(message.sid)
-
     return len(faces)
+
+# we have pin 4 plugged into the motion sensor on our pi
+#pir    = MotionSensor(4)
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(PIR_PIN, GPIO.OUT)
+GPIO.setup(SERVO_PIN, GPIO.OUT)
+time.sleep(4)
+print("Monitoring motion")
+time_of_last_motion = 0
 
 try:
   while True:
-    time.sleep(2) # avoid pegging the cpu
-    print("waiting for motion to wake me up")
-    if GPIO.input(23):
-      #pir.wait_for_motion()
-      print("we detected motion!")
+    #print("waiting for motion to wake me up")
+    #pir.wait_for_motion()
+    i = GPIO.input(PIR_PIN)
+    #print("we detected motion!")
+    if i:
+       time_of_motion = time.time()
+       time_since_last_motion = time_of_motion - time_of_last_motion
+       #print("time_since_last_motion: %d" % time_since_last_motion)
+       if time_since_last_motion < 10:
+          print(".")
+       else:
+          print("Motion Detected!")
+          time_of_last_motion = time_of_motion
+          check_for_face()
 
-      check_for_face()
-
-
-except:
-    GPIO.cleanup()
+    time.sleep(1) # avoid pegging the cpu
+except KeyboardInterrupt:
+  print("Quit")
+finally:
+  GPIO.cleanup()
