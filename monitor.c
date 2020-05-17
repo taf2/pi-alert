@@ -20,12 +20,14 @@
 
 #define MAX_CAPTURES 256
 #define REDIS_HOST "192.168.2.50"
+#define HOST_IP "192.168.2.57"
+#define HOST_NAME "basement"
 #define VIDEO_COUNTER "/home/pi/video.counter"
 
 // a value between 1 and 10
 // if not init we'll default to 1
 static int videoPoint = 0;
-static char buffer[128];
+static char buffer[1024];
 
 void setup() {
   FILE *file = fopen(VIDEO_COUNTER, "rb");
@@ -49,19 +51,45 @@ void setup() {
   digitalWrite(GREENLED, HIGH);
 }
 
+void signalNewRecording(int videoPoint) {
+//  redisContext *c;
+//  redisReply *reply;
+
+//  struct timeval timeout = { 1, 500000 }; // 1.5 seconds
+
+//  c = redisConnectWithTimeout(REDIS_HOST, 6379, timeout);
+
+   // XADD: ERR Invalid stream ID specified as stream command argument
+                                       // //'["object_detect", {"name": "basement", "url": "http://192.168.2.57/video17.mp4"}]'
+  memset(buffer,'\0',1023);
+  snprintf(buffer, 1023, "redis-cli -h %s XADD tasks '*' task '[\"object_detect\", {\"name\": \"%s\", \"url\": \"http://%s/video%d.mp4\"}]'", REDIS_HOST, HOST_NAME, HOST_IP, videoPoint);
+  printf("execute redis cmd: '''%s'''\n", buffer);
+  system(buffer);
+
+//  reply = redisCommand(c, buffer);
+//  printf("XADD: %s\n", reply->str);
+//  freeReplyObject(reply);
+//  redisFree(c);
+
+  // xadd tasks * task '["object_detect", {"name": "basement", "url": "http://192.168.2.57/video17.mp4"}]'
+  // we need to xadd to the tasks redis stream (indicate our name and the url from which you can fetch our recording) 
+}
+
 void captureRecording(int videoPoint) {
   // capture 10 seconds of video
   digitalWrite(REDLED, HIGH);
-  memset(buffer,'\0',127);
-  snprintf(buffer, 127, "/usr/bin/raspivid -o /var/www/html/video%d.h264 -t 10000", videoPoint);
+  memset(buffer,'\0',1023);
+  snprintf(buffer, 1023, "/usr/bin/raspivid -o /var/www/html/video%d.h264 -t 10000", videoPoint);
   system(buffer);
   digitalWrite(REDLED, LOW);
   // convert the video to mp4 for easier playback
   digitalWrite(BLUELED, HIGH);
-  memset(buffer,'\0',127);
-  snprintf(buffer, 127, "/usr/bin/ffmpeg -y -framerate 24 -i /var/www/html/video%d.h264 -c copy /var/www/html/video%d.mp4", videoPoint, videoPoint);
+  memset(buffer,'\0',1023);
+  snprintf(buffer, 1023, "/usr/bin/ffmpeg -y -framerate 24 -i /var/www/html/video%d.h264 -c copy /var/www/html/video%d.mp4", videoPoint, videoPoint);
   system(buffer);
   digitalWrite(BLUELED, LOW);
+
+  signalNewRecording(videoPoint);
 }
 
 void advanceVideoPoint(int* videoPoint) {
