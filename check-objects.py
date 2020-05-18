@@ -251,8 +251,9 @@ if __name__ == '__main__':
       # scan upto max_check_frames and we'll try to evenly distribute the checks to frames such that we analysis
       # a good amount of the 10-12 second video clip capture that was sent to us...
       frame_count = 0
+      check_interval = 20 # check every check_interval frame e.g. frame_count % check_interval == 1
       checked_frames = 0
-      max_check_frames = 50
+      max_check_frames = 10
 
       try:
         while True:
@@ -263,7 +264,7 @@ if __name__ == '__main__':
 
 
           frame_count += 1
-          if frame_count % 3 == 1 and checked_frames < max_check_frames:
+          if frame_count % check_interval == 0 and checked_frames < max_check_frames:
             print("check frames: %d" % frame_count)
             checked_frames += 1
 
@@ -333,8 +334,8 @@ if __name__ == '__main__':
 
             #cv2.namedWindow("frame", cv2.WINDOW_NORMAL)
             #cv2.imshow("frame", frame)
-          else:
-            print("skip analysis of frame: %d" % frame_count)
+          #else:
+          #  print("skip analysis of frame: %d" % frame_count)
 
           if out == None:
             fshape = frame.shape
