@@ -29,8 +29,8 @@
 // receive a single from arduinio trinket that our battery is about to go out
 #define PWROFF 37
 #define REDLED 36
-//#define BLUELED 33
-#define GREENLED 31
+#define GREENLED 33
+#define BLUELED 31 // note used but, reserved for a processing pin if after capturing video we need some indicator that we're processing.
 #define PIRPIN  7
 
 #define MAX_CAPTURES 256
