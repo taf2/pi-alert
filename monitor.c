@@ -1,5 +1,20 @@
 /*
  * Monitor sensors and inputs from battery and PIR sensor
+ *
+ * monitor multiple GPIO pins
+ *
+ * input pins:
+ *
+ *   PWROFF - tells us we are low on battery and need to execute shutdown sequence right away
+ *   PIRPIN - tells us we have detected motion within our field of view and should activate the camera and start recording
+ *            we'll save our recording into an http accessible folder and xadd into a redis stream to have it reviewed
+ *
+ * output pins
+ *
+ * REDLED - light this up when we're recording
+ * BLUELED - we have this wired directly to the PIR sensor and it should turn on automatically when the PIR detects motion
+ * GREENLED - this should be on when this program is running otherwise it should be off
+ *
  **/
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,7 +29,7 @@
 // receive a single from arduinio trinket that our battery is about to go out
 #define PWROFF 37
 #define REDLED 36
-#define BLUELED 33
+//#define BLUELED 33
 #define GREENLED 31
 #define PIRPIN  7
 
@@ -43,11 +58,9 @@ void setup() {
 	pinMode(PWROFF, INPUT);
 	pinMode(PIRPIN, INPUT);
   pinMode(REDLED, OUTPUT);
-  pinMode(BLUELED, OUTPUT);
   pinMode(GREENLED, OUTPUT);
 
-  digitalWrite(REDLED, HIGH);
-  digitalWrite(BLUELED, HIGH);
+  digitalWrite(REDLED, LOW);
   digitalWrite(GREENLED, HIGH);
 }
 
@@ -62,7 +75,7 @@ void signalNewRecording(int videoPoint) {
    // XADD: ERR Invalid stream ID specified as stream command argument
                                        // //'["object_detect", {"name": "basement", "url": "http://192.168.2.57/video17.mp4"}]'
   memset(buffer,'\0',1023);
-  snprintf(buffer, 1023, "redis-cli -h %s XADD tasks '*' task '[\"object_detect\", {\"name\": \"%s\", \"url\": \"http://%s/video%d.mp4\"}]'", REDIS_HOST, HOST_NAME, HOST_IP, videoPoint);
+  snprintf(buffer, 1023, "redis-cli -h %s XADD tasks '*' task '[\"object_detect\", {\"name\": \"%s\", \"url\": \"http://%s/video%d.h264\"}]'", REDIS_HOST, HOST_NAME, HOST_IP, videoPoint);
   printf("execute redis cmd: '''%s'''\n", buffer);
   system(buffer);
 
@@ -79,15 +92,15 @@ void captureRecording(int videoPoint) {
   // capture 10 seconds of video
   digitalWrite(REDLED, HIGH);
   memset(buffer,'\0',1023);
-  snprintf(buffer, 1023, "/usr/bin/raspivid -o /var/www/html/video%d.h264 -t 10000", videoPoint);
+  snprintf(buffer, 1023, "/usr/bin/raspivid -o /var/www/html/video%d.h264 -w 640 -h 480 -t 10000", videoPoint);
   system(buffer);
   digitalWrite(REDLED, LOW);
   // convert the video to mp4 for easier playback
-  digitalWrite(BLUELED, HIGH);
-  memset(buffer,'\0',1023);
-  snprintf(buffer, 1023, "/usr/bin/ffmpeg -y -framerate 24 -i /var/www/html/video%d.h264 -c copy /var/www/html/video%d.mp4", videoPoint, videoPoint);
-  system(buffer);
-  digitalWrite(BLUELED, LOW);
+  //digitalWrite(BLUELED, HIGH);
+  //memset(buffer,'\0',1023);
+  //snprintf(buffer, 1023, "/usr/bin/ffmpeg -y -framerate 24 -i /var/www/html/video%d.h264 -c copy /var/www/html/video%d.mp4", videoPoint, videoPoint);
+  //system(buffer);
+  //digitalWrite(BLUELED, LOW);
 
   signalNewRecording(videoPoint);
 }
@@ -110,7 +123,7 @@ void advanceVideoPoint(int* videoPoint) {
 
 void loop() {
   int pwroff = digitalRead(PWROFF); 
-  printf("pwroff reading: %d\n",  pwroff);
+  //printf("pwroff reading: %d\n",  pwroff);
 
   if (pwroff) {
     printf("we should start the shutdown sequence\n");
@@ -119,10 +132,8 @@ void loop() {
   delay(1000);
 
   if (!(digitalRead(PIRPIN))) {
-    puts("No alarm...");
+    //puts("No alarm...");
     digitalWrite(REDLED, LOW);
-    digitalWrite(BLUELED, LOW);
-    digitalWrite(GREENLED, LOW);
   } else {
     printf("Alarm %d!\n", videoPoint);
     captureRecording(videoPoint);
@@ -135,7 +146,6 @@ void cleanup(int signum, siginfo_t *info, void *ptr) {
   write(STDERR_FILENO, "cleanup\n", sizeof("cleanup\n"));
 
   digitalWrite(REDLED, LOW);
-  digitalWrite(BLUELED, LOW);
   digitalWrite(GREENLED, LOW);
 
   exit(0);
