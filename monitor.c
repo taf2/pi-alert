@@ -27,10 +27,11 @@
 #include <wiringPi.h>
 
 // receive a single from arduinio trinket that our battery is about to go out
-#define PWROFF 37
+//#define PWROFF 37
+#define PWROFF 29 // moved this so it's closer to the trinket
 #define REDLED 36
-#define GREENLED 33
-#define BLUELED 31 // note used but, reserved for a processing pin if after capturing video we need some indicator that we're processing.
+#define GREENLED 33 // blue
+#define BLUELED 31 // yellow, note used but, reserved for a processing pin if after capturing video we need some indicator that we're processing.
 //#define PIRPIN  7
 #define PIRPIN 22 // with new wiring plan we moved to wiring pin 6, BCM 25
 

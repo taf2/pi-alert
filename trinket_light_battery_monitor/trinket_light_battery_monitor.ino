@@ -36,11 +36,11 @@ void setup() {
   pinMode(PHOTOCELL, INPUT); // mark as our input pin
   pinMode(LOWBAT, INPUT);
 
-  digitalWrite(RPI, HIGH); // initially the pi should be off
+  digitalWrite(RPI, LOW); // initially the pi should be off
   digitalWrite(RELAY, LOW); // initially the pi power should be off
 
   digitalWrite(LED, 0); // we have light but the battery appears low start charging
-  analogWrite(VLED, 0); // we have light but the battery appears low start charging
+  digitalWrite(VLED, LOW); // we have light but the battery appears low start charging
 
   // delay bootup to avoid blips
   delay(5000);
@@ -54,13 +54,17 @@ short delayFor = 1000; // default pause for 1 second when sleeping for the night
 void loop() {
   int lowbat = digitalRead(LOWBAT); // get value of battery reading  HIGH indicates low battery LOW indicates plenty of battery
   int light  = analogRead(PHOTOCELL); // returns values between 0 and 1023
-
-  if (light > 100) { // plenty of sun light & plenty of battery power
+  if (lowbat == HIGH) {
+    digitalWrite(LED, HIGH);
+  } else {
+    digitalWrite(LED, LOW);
+  }
+  if (light > 128) { // plenty of sun light & plenty of battery power
     ++litcount;
     delayFor = 1000; // at the first sign of any light start checking at 1 second interval again.
     if (lowbat == HIGH) {
-      digitalWrite(LED, 12); // we have light but the battery appears low start charging
-      analogWrite(VLED, 12); // we have light but the battery appears low start charging
+      digitalWrite(LED, HIGH); // we have light but the battery appears low start charging
+      digitalWrite(VLED, HIGH); // we have light but the battery appears low start charging
 
       delay(1000);
       return;
@@ -68,18 +72,18 @@ void loop() {
     if (litcount > 10) {
       dimcount = 0;
       litcount = 10; // keep it smallish
-      digitalWrite(RPI, LOW); // ensure the pi is signaled for wake up
+      digitalWrite(RPI, HIGH); // ensure the pi is signaled for wake up
 
       digitalWrite(RELAY, HIGH); // ensure ourpower to the pi is ON
     
-      digitalWrite(LED, 0);  // PWM the LED from 255 (max) to 0
-      analogWrite(VLED, 64);  // PWM the LED from 255 (max) to 0
+      digitalWrite(LED, LOW);  // PWM the LED from 255 (max) to 0
+      digitalWrite(VLED, HIGH);  // PWM the LED from 255 (max) to 0
 
     } else {
       if (litcount % 2 == 0) {
-        digitalWrite(VLED, 0);
+        digitalWrite(VLED, LOW);
       } else {
-        digitalWrite(VLED, 64);
+        digitalWrite(VLED, HIGH);
       }
     }
   } else {
@@ -87,16 +91,16 @@ void loop() {
     if (dimcount > 10) { // it appears we are low on sun light
       litcount = 0; // it appears dark 
       if (dimcount < 30) {
-        digitalWrite(LED, 64);
+        digitalWrite(LED, HIGH);
         if (dimcount % 3 == 0) {
-          analogWrite(VLED, 0);
+          digitalWrite(VLED, LOW);
         } else {
-          analogWrite(VLED, 64);
+          digitalWrite(VLED, HIGH);
         }
-        digitalWrite(RPI, HIGH);
+        digitalWrite(RPI, LOW);
       } else if (dimcount > 30) {
-        digitalWrite(LED, 0);  // disable the led here to save power
-        analogWrite(VLED, 0);  // disable the led here to save power
+        digitalWrite(LED, LOW);  // disable the led here to save power
+        digitalWrite(VLED, LOW);  // disable the led here to save power
 
         // send signal here to pi to shutdown proper
         // after 30 more seconds cut the power
@@ -108,9 +112,9 @@ void loop() {
     } else {
       // dim so mod dimcount to blink vled as a warming that we're about to start the shutdown signal
       if (dimcount % 2 == 0) {
-        analogWrite(VLED, 0);
+        digitalWrite(VLED, HIGH);
       } else {
-        analogWrite(VLED, 64);
+        digitalWrite(VLED, HIGH);
       }
     }
   }
