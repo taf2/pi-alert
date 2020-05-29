@@ -12,8 +12,8 @@
  * output pins
  *
  * REDLED - light this up when we're recording
- * BLUELED - we have this wired directly to the PIR sensor and it should turn on automatically when the PIR detects motion
- * GREENLED - this should be on when this program is running otherwise it should be off
+ * YELLOWLED - not sure yet
+ * BLUELED - this should be on when this program is running otherwise it should be off
  *
  **/
 #include <stdio.h>
@@ -30,8 +30,8 @@
 //#define PWROFF 37
 #define PWROFF 29 // moved this so it's closer to the trinket
 #define REDLED 36
-#define GREENLED 33 // blue
-#define BLUELED 31 // yellow, note used but, reserved for a processing pin if after capturing video we need some indicator that we're processing.
+#define BLUELED 33 // blue
+#define YELLOWLED 31 // yellow, note used but, reserved for a processing pin if after capturing video we need some indicator that we're processing.
 //#define PIRPIN  7
 #define PIRPIN 22 // with new wiring plan we moved to wiring pin 6, BCM 25
 
@@ -60,10 +60,12 @@ void setup() {
 	pinMode(PWROFF, INPUT);
 	pinMode(PIRPIN, INPUT);
   pinMode(REDLED, OUTPUT);
-  pinMode(GREENLED, OUTPUT);
+  pinMode(BLUELED, OUTPUT);
+  pinMode(YELLOWLED, OUTPUT);
 
+  digitalWrite(YELLOWLED, LOW);
   digitalWrite(REDLED, LOW);
-  digitalWrite(GREENLED, HIGH);
+  digitalWrite(BLUELED, HIGH);
 }
 
 void signalNewRecording(int videoPoint) {
@@ -98,11 +100,11 @@ void captureRecording(int videoPoint) {
   system(buffer);
   digitalWrite(REDLED, LOW);
   // convert the video to mp4 for easier playback
-  //digitalWrite(BLUELED, HIGH);
+  //digitalWrite(YELLOWLED, HIGH);
   //memset(buffer,'\0',1023);
   //snprintf(buffer, 1023, "/usr/bin/ffmpeg -y -framerate 24 -i /var/www/html/video%d.h264 -c copy /var/www/html/video%d.mp4", videoPoint, videoPoint);
   //system(buffer);
-  //digitalWrite(BLUELED, LOW);
+  //digitalWrite(YELLOWLED, LOW);
 
   signalNewRecording(videoPoint);
 }
@@ -148,7 +150,8 @@ void cleanup(int signum, siginfo_t *info, void *ptr) {
   write(STDERR_FILENO, "cleanup\n", sizeof("cleanup\n"));
 
   digitalWrite(REDLED, LOW);
-  digitalWrite(GREENLED, LOW);
+  digitalWrite(BLUELED, LOW);
+  digitalWrite(YELLOWLED, LOW);
 
   exit(0);
 }
