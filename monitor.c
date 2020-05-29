@@ -31,7 +31,8 @@
 #define REDLED 36
 #define GREENLED 33
 #define BLUELED 31 // note used but, reserved for a processing pin if after capturing video we need some indicator that we're processing.
-#define PIRPIN  7
+//#define PIRPIN  7
+#define PIRPIN 22 // with new wiring plan we moved to wiring pin 6, BCM 25
 
 #define MAX_CAPTURES 256
 #define REDIS_HOST "192.168.2.50"
