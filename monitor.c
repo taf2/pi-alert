@@ -12,13 +12,14 @@
  * output pins
  *
  * REDLED - light this up when we're recording
- * YELLOWLED - not sure yet
- * BLUELED - this should be on when this program is running otherwise it should be off
+ * YELLOWLED - this should be on when this program is running otherwise it should be off
+ * BLUELED - this is light when the PIR sensor is detecting motion we should not touch it since the PIR sensor has it hard wired
  *
  **/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <signal.h>
 #include <unistd.h>
 #include <hiredis/hiredis.h>
@@ -30,10 +31,10 @@
 //#define PWROFF 37
 #define PWROFF 29 // moved this so it's closer to the trinket
 #define REDLED 36
-#define BLUELED 33 // blue
+//#define BLUELED 33 // blue
 #define YELLOWLED 31 // yellow, note used but, reserved for a processing pin if after capturing video we need some indicator that we're processing.
 //#define PIRPIN  7
-#define PIRPIN 22 // with new wiring plan we moved to wiring pin 6, BCM 25
+#define PIRPIN 32
 
 #define MAX_CAPTURES 256
 #define REDIS_HOST "192.168.2.50"
@@ -45,6 +46,7 @@
 // if not init we'll default to 1
 static int videoPoint = 0;
 static char buffer[1024];
+static time_t lastAlarm = 0;
 
 void setup() {
   FILE *file = fopen(VIDEO_COUNTER, "rb");
@@ -55,17 +57,19 @@ void setup() {
     printf("Starting with %d\n", videoPoint);
   }
 
+  lastAlarm = time(0);
+
   wiringPiSetupPhys();
 
 	pinMode(PWROFF, INPUT);
 	pinMode(PIRPIN, INPUT);
   pinMode(REDLED, OUTPUT);
-  pinMode(BLUELED, OUTPUT);
+//  pinMode(BLUELED, OUTPUT);
   pinMode(YELLOWLED, OUTPUT);
 
-  digitalWrite(YELLOWLED, LOW);
+  digitalWrite(YELLOWLED, HIGH); // while we're running turn this to high
   digitalWrite(REDLED, LOW);
-  digitalWrite(BLUELED, HIGH);
+//  digitalWrite(BLUELED, HIGH);
 }
 
 void signalNewRecording(int videoPoint) {
@@ -124,24 +128,34 @@ void advanceVideoPoint(int* videoPoint) {
   file = NULL;
 }
 
-
 void loop() {
+  double secondsSinceLastAlarm = 0;
+  time_t alarmTime = 0;
   int pwroff = digitalRead(PWROFF); 
   //printf("pwroff reading: %d\n",  pwroff);
 
-  if (pwroff) {
+  if (0 && pwroff) {
     printf("we should start the shutdown sequence\n");
     system("/sbin/shutdown -h now");
+    delay(10000);
+    return;
   }
   delay(1000);
 
-  if (!(digitalRead(PIRPIN))) {
+  if (digitalRead(PIRPIN)) {
+    alarmTime = time(0);
+    secondsSinceLastAlarm = difftime(alarmTime, lastAlarm);
+    if (secondsSinceLastAlarm > 60) {
+      printf("Alarm %d!\n", videoPoint);
+      lastAlarm = alarmTime;
+      captureRecording(videoPoint);
+      advanceVideoPoint(&videoPoint);
+    } else {
+      printf("Last alarmed within the same minute, %f seconds remaining.\n", (60-secondsSinceLastAlarm));
+    }
+  } else {
     //puts("No alarm...");
     digitalWrite(REDLED, LOW);
-  } else {
-    printf("Alarm %d!\n", videoPoint);
-    captureRecording(videoPoint);
-    advanceVideoPoint(&videoPoint);
   }
 
 }
@@ -150,7 +164,7 @@ void cleanup(int signum, siginfo_t *info, void *ptr) {
   write(STDERR_FILENO, "cleanup\n", sizeof("cleanup\n"));
 
   digitalWrite(REDLED, LOW);
-  digitalWrite(BLUELED, LOW);
+//  digitalWrite(BLUELED, LOW);
   digitalWrite(YELLOWLED, LOW);
 
   exit(0);
