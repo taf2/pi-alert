@@ -27,6 +27,8 @@
 
 #include <wiringPi.h>
 
+#define DELAY_BETWEEN_ALARM 25
+
 // receive a single from arduinio trinket that our battery is about to go out
 //#define PWROFF 37
 #define PWROFF 29 // moved this so it's closer to the trinket
@@ -38,7 +40,7 @@
 
 #define MAX_CAPTURES 256
 #define REDIS_HOST "192.168.2.50"
-#define HOST_IP "192.168.2.57"
+#define HOST_IP "192.168.2.75"
 #define HOST_NAME "basement"
 #define VIDEO_COUNTER "/home/pi/video.counter"
 
@@ -67,8 +69,8 @@ void setup() {
 //  pinMode(BLUELED, OUTPUT);
   pinMode(YELLOWLED, OUTPUT);
 
+  digitalWrite(REDLED, HIGH); // start up HIGH so we can see it working
   digitalWrite(YELLOWLED, HIGH); // while we're running turn this to high
-  digitalWrite(REDLED, LOW);
 //  digitalWrite(BLUELED, HIGH);
 }
 
@@ -100,17 +102,18 @@ void captureRecording(int videoPoint) {
   // capture 10 seconds of video
   digitalWrite(REDLED, HIGH);
   memset(buffer,'\0',1023);
-  snprintf(buffer, 1023, "/usr/bin/raspivid -o /var/www/html/video%d.h264 -w 640 -h 480 -t 10000", videoPoint);
+  snprintf(buffer, 1023, "/usr/bin/raspivid --rotation 180 -o /var/www/html/video%d.h264 -w 640 -h 480 -t 10000", videoPoint);
   system(buffer);
-  digitalWrite(REDLED, LOW);
   // convert the video to mp4 for easier playback
+  // NOTE: we commented this out it uses a lot of CPU
   //digitalWrite(YELLOWLED, HIGH);
-  //memset(buffer,'\0',1023);
-  //snprintf(buffer, 1023, "/usr/bin/ffmpeg -y -framerate 24 -i /var/www/html/video%d.h264 -c copy /var/www/html/video%d.mp4", videoPoint, videoPoint);
-  //system(buffer);
+//  memset(buffer,'\0',1023);
+//  snprintf(buffer, 1023, "/usr/bin/ffmpeg -y -framerate 24 -i /var/www/html/video%d.h264 -c copy /var/www/html/video%d.mp4", videoPoint, videoPoint);
+//  system(buffer);
   //digitalWrite(YELLOWLED, LOW);
 
   signalNewRecording(videoPoint);
+  digitalWrite(REDLED, LOW);
 }
 
 void advanceVideoPoint(int* videoPoint) {
@@ -129,29 +132,43 @@ void advanceVideoPoint(int* videoPoint) {
 }
 
 void loop() {
-  double secondsSinceLastAlarm = 0;
+  int secondsSinceLastAlarm = 0;
   time_t alarmTime = 0;
   int pwroff = digitalRead(PWROFF); 
   //printf("pwroff reading: %d\n",  pwroff);
+  /*
+   * use this block of code to test LED functions
+      digitalWrite(REDLED, HIGH);
+      delay(1000);
+      return;
+  */
 
-  if (0 && pwroff) {
+  if (pwroff) {
     printf("we should start the shutdown sequence\n");
     system("/sbin/shutdown -h now");
     delay(10000);
     return;
   }
-  delay(1000);
+  delay(500);
 
   if (digitalRead(PIRPIN)) {
     alarmTime = time(0);
-    secondsSinceLastAlarm = difftime(alarmTime, lastAlarm);
-    if (secondsSinceLastAlarm > 60) {
+    secondsSinceLastAlarm = (int)difftime(alarmTime, lastAlarm);
+    if (secondsSinceLastAlarm > DELAY_BETWEEN_ALARM) {
       printf("Alarm %d!\n", videoPoint);
+      digitalWrite(REDLED, HIGH);
       lastAlarm = alarmTime;
       captureRecording(videoPoint);
       advanceVideoPoint(&videoPoint);
+      lastAlarm = time(0);
     } else {
-      printf("Last alarmed within the same minute, %f seconds remaining.\n", (60-secondsSinceLastAlarm));
+      printf("Last alarmed within the same minute, %d seconds remaining.\n", (DELAY_BETWEEN_ALARM-secondsSinceLastAlarm));
+      if ((secondsSinceLastAlarm % 2) == 1) {
+        digitalWrite(REDLED, LOW);
+      } else {
+        digitalWrite(REDLED, HIGH);
+      }
+      delay(500);
     }
   } else {
     //puts("No alarm...");
@@ -180,8 +197,8 @@ int main(int argc, char**argv) {
 
   setup();
 
-  puts("warming up");
-  delay(2000);
+  puts("warming up 3 seconds...");
+  delay(3000);
   puts("starting up now");
 
 	while (1) {
