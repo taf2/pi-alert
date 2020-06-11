@@ -39,8 +39,8 @@ void setup() {
   digitalWrite(RPI, LOW); // initially the pi should be off
   digitalWrite(RELAY, LOW); // initially the pi power should be off
 
-  digitalWrite(LED, 0); // we have light but the battery appears low start charging
-  digitalWrite(VLED, LOW); // we have light but the battery appears low start charging
+  digitalWrite(LED, HIGH);
+  digitalWrite(VLED, LOW);
 
   // delay bootup to avoid blips
   for (short i = 0; i < 5; ++i) {
@@ -49,7 +49,9 @@ void setup() {
     blinkPhase(i);
     
   }
-  
+  digitalWrite(LED, LOW);
+  digitalWrite(VLED, LOW);
+
 }
 
 short litcount = 0; // keep track of many seconds of good light we have before changing state.
@@ -114,9 +116,9 @@ void loop() {
       
       if (litcount < 30) {
         blinkPhase(litcount);
-        softOn();
+        softOff();
       } else if (litcount > 30) {
-        piOn();
+        piOff();
         litcount = 31;
       }
     } else {
@@ -128,9 +130,9 @@ void loop() {
       litcount = 0; // it appears dark 
       if (dimcount < 30) {
         blinkPhase(dimcount);
-        softOff();
+        softOn();
       } else if (dimcount > 30) {
-        piOff();
+        piOn();
         dimcount = 31;
       }
     } else {
