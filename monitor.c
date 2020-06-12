@@ -102,7 +102,7 @@ void captureRecording(int videoPoint) {
   // capture 10 seconds of video
   digitalWrite(REDLED, HIGH);
   memset(buffer,'\0',1023);
-  snprintf(buffer, 1023, "/usr/bin/raspivid --rotation 180 -o /var/www/html/video%d.h264 -w 640 -h 480 -t 10000", videoPoint);
+  snprintf(buffer, 1023, "/usr/bin/raspivid --rotation 90 -o /var/www/html/video%d.h264 -w 640 -h 480 -t 10000", videoPoint);
   system(buffer);
   // convert the video to mp4 for easier playback
   // NOTE: we commented this out it uses a lot of CPU
@@ -131,10 +131,14 @@ void advanceVideoPoint(int* videoPoint) {
   file = NULL;
 }
 
+int cycles = 0;
+
 void loop() {
   int secondsSinceLastAlarm = 0;
   time_t alarmTime = 0;
   int pwroff = digitalRead(PWROFF); 
+  ++cycles;
+
   //printf("pwroff reading: %d\n",  pwroff);
   /*
    * use this block of code to test LED functions
@@ -143,8 +147,11 @@ void loop() {
       return;
   */
 
-  if (pwroff) {
+  if (pwroff && cycles > 20) {
     printf("we should start the shutdown sequence\n");
+    digitalWrite(REDLED, HIGH);
+    digitalWrite(YELLOWLED, LOW);
+    delay(500);
     system("/sbin/shutdown -h now");
     delay(10000);
     return;
