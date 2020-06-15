@@ -27,7 +27,7 @@
 
 #include <wiringPi.h>
 
-#define DELAY_BETWEEN_ALARM 25
+#define DELAY_BETWEEN_ALARM 15
 
 // receive a single from arduinio trinket that our battery is about to go out
 //#define PWROFF 37
@@ -102,7 +102,7 @@ void captureRecording(int videoPoint) {
   // capture 10 seconds of video
   digitalWrite(REDLED, HIGH);
   memset(buffer,'\0',1023);
-  snprintf(buffer, 1023, "/usr/bin/raspivid --rotation 90 -o /var/www/html/video%d.h264 -w 640 -h 480 -t 10000", videoPoint);
+  snprintf(buffer, 1023, "/usr/bin/raspivid --rotation 270 -o /var/www/html/video%d.h264 -w 640 -h 480 -t 10000", videoPoint);
   system(buffer);
   // convert the video to mp4 for easier playback
   // NOTE: we commented this out it uses a lot of CPU
