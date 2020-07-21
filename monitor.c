@@ -30,12 +30,10 @@
 #define DELAY_BETWEEN_ALARM 15
 
 // receive a single from arduinio trinket that our battery is about to go out
-//#define PWROFF 37
 #define PWROFF 29 // moved this so it's closer to the trinket
 #define REDLED 36
-//#define BLUELED 33 // blue
+#define BLUELED 37 // blue
 #define YELLOWLED 31 // yellow, note used but, reserved for a processing pin if after capturing video we need some indicator that we're processing.
-//#define PIRPIN  7
 #define PIRPIN 32
 
 #define MAX_CAPTURES 256
@@ -63,15 +61,15 @@ void setup() {
 
   wiringPiSetupPhys();
 
-	pinMode(PWROFF, INPUT);
-	pinMode(PIRPIN, INPUT);
+  pinMode(PWROFF, INPUT);
+  pinMode(PIRPIN, INPUT);
   pinMode(REDLED, OUTPUT);
-//  pinMode(BLUELED, OUTPUT);
+  pinMode(BLUELED, OUTPUT);
   pinMode(YELLOWLED, OUTPUT);
 
   digitalWrite(REDLED, HIGH); // start up HIGH so we can see it working
   digitalWrite(YELLOWLED, HIGH); // while we're running turn this to high
-//  digitalWrite(BLUELED, HIGH);
+  digitalWrite(BLUELED, HIGH);
 }
 
 void signalNewRecording(int videoPoint) {
@@ -139,7 +137,7 @@ void loop() {
   int pwroff = digitalRead(PWROFF); 
   ++cycles;
 
-  //printf("pwroff reading: %d\n",  pwroff);
+  printf("pwroff reading: %d\n",  pwroff);
   /*
    * use this block of code to test LED functions
       digitalWrite(REDLED, HIGH);
@@ -159,6 +157,7 @@ void loop() {
   delay(500);
 
   if (digitalRead(PIRPIN)) {
+    digitalWrite(BLUELED, HIGH);
     alarmTime = time(0);
     secondsSinceLastAlarm = (int)difftime(alarmTime, lastAlarm);
     if (secondsSinceLastAlarm > DELAY_BETWEEN_ALARM) {
@@ -178,6 +177,7 @@ void loop() {
       delay(500);
     }
   } else {
+    digitalWrite(BLUELED, LOW);
     //puts("No alarm...");
     digitalWrite(REDLED, LOW);
   }
@@ -188,7 +188,7 @@ void cleanup(int signum, siginfo_t *info, void *ptr) {
   write(STDERR_FILENO, "cleanup\n", sizeof("cleanup\n"));
 
   digitalWrite(REDLED, LOW);
-//  digitalWrite(BLUELED, LOW);
+  digitalWrite(BLUELED, LOW);
   digitalWrite(YELLOWLED, LOW);
 
   exit(0);
