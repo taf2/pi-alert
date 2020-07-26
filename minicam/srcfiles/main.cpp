@@ -9,9 +9,14 @@
 #include "soc/soc.h"           // Disable brownour problems
 #include "soc/rtc_cntl_reg.h"  // Disable brownour problems
 #include "driver/rtc_io.h"
+#include "WiFi.h"
+
 #include <EEPROM.h>            // read and write from flash memory
 // define the number of bytes you want to access
 #define EEPROM_SIZE 1
+
+const char* ssid     = "<%= @config[:ssid] %>";
+const char* password = "<%= @config[:pass] %>";
 
 RTC_DATA_ATTR int bootCount = 0;
 
@@ -35,12 +40,7 @@ RTC_DATA_ATTR int bootCount = 0;
 
 int pictureNumber = 0;
 
-void setup() {
-  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // disable brownout detector... we're on battery hopefully this is ok...
-  Serial.begin(115200);
-
-  Serial.setDebugOutput(true);
-
+void snapshot() {
   camera_config_t config;
   // configure the board to use the camera
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -64,9 +64,11 @@ void setup() {
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
 
-  pinMode(4, INPUT);
+  // Flashlight and SD card
+  /*pinMode(4, INPUT);
   digitalWrite(4, LOW);
   rtc_gpio_hold_dis(GPIO_NUM_4);
+  */
 
   if (psramFound()) {
     config.frame_size = FRAMESIZE_UXGA; // FRAMESIZE_ + QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA
@@ -135,18 +137,52 @@ void setup() {
   delay(1000);
 
   // Turns off the ESP32-CAM white on-board LED (flash) connected to GPIO 4
-  pinMode(4, OUTPUT);
+  /*pinMode(4, OUTPUT);
   digitalWrite(4, LOW);
   rtc_gpio_hold_en(GPIO_NUM_4);
+  */
+}
 
-  esp_sleep_enable_ext0_wakeup(GPIO_NUM_13, 0);
+void setup() {
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // disable brownout detector... we're on battery hopefully this is ok...
 
-  Serial.println("Going to sleep now");
+  //pinMode(GPIO_NUM_13, INPUT);
+  pinMode(GPIO_NUM_12, OUTPUT);
+  digitalWrite(GPIO_NUM_12, HIGH);
+
+  Serial.begin(115200);
+
+  //Serial.setDebugOutput(true);
+
+  snapshot();
+
+  Serial.println("blinking before sleep");
   delay(1000);
+  digitalWrite(GPIO_NUM_12, LOW);
+  delay(1000);
+  digitalWrite(GPIO_NUM_12, HIGH);
+  delay(1000);
+  digitalWrite(GPIO_NUM_12, LOW);
+  delay(1000);
+  digitalWrite(GPIO_NUM_12, HIGH);
+  delay(1000);
+  digitalWrite(GPIO_NUM_12, LOW);
+  delay(1000);
+  digitalWrite(GPIO_NUM_12, HIGH);
+  delay(3000);
+
+  // Transisitor 2N3904 E,B,C with E connected to ground, B connected to 1k resistor and output from RCWL-0516, C connected to 10k resistor and green LED so we know when the led turns off we have motion
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_13, LOW);
+
   esp_deep_sleep_start();
   Serial.println("This will never be printed");
 }
 
 void loop() {
-
+  int motion = digitalRead(GPIO_NUM_13);
+  if (motion == HIGH) {
+    digitalWrite(GPIO_NUM_12, HIGH);
+  } else {
+    digitalWrite(GPIO_NUM_12, LOW);
+  }
 }

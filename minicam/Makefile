@@ -2,11 +2,17 @@ all: minicam
 upload: minicam
 	pio run --target upload
 
-minicam: src/main.cpp
+minicam: targets
 	pio run
+
+targets: srcfiles/main.cpp
+	ruby build.rb main.cpp
 
 monitor:
 	pio device monitor
+
+configure:
+	pio lib install "Redis for Arduino"
 
 clean:
 	pio run --target clean
