@@ -14,9 +14,14 @@
 #include <EEPROM.h>            // read and write from flash memory
 // define the number of bytes you want to access
 #define EEPROM_SIZE 1
+#define TIMEOUT      20000
 
 const char* ssid     = "<%= @config[:ssid] %>";
 const char* password = "<%= @config[:pass] %>";
+const char* events_host = "<%= @config.dig(:events,:host) %>";
+const int   events_port = <%= @config.dig(:events,:port) %>;
+
+const char* BOUNDARY= "----------------v7MlwafBAXWMW4t7eECQ-----------------";
 
 RTC_DATA_ATTR int bootCount = 0;
 
@@ -40,7 +45,124 @@ RTC_DATA_ATTR int bootCount = 0;
 
 int pictureNumber = 0;
 
-void snapshot() {
+void errorBlink(int high) {
+  for (int i = 0; i < 10; ++i) {
+    digitalWrite(GPIO_NUM_12, LOW);
+    delay(500);
+    digitalWrite(GPIO_NUM_12, HIGH);
+  }
+  if (high) {
+    digitalWrite(GPIO_NUM_12, HIGH);
+  }
+}
+
+String saveImage(camera_fb_t *fb, String path) {
+  if (!SD_MMC.begin()) {
+    Serial.println("SD Card Mount Failed");
+    return "SD Card Mount Failed";
+  }
+
+  uint8_t cardType = SD_MMC.cardType();
+  if (cardType == CARD_NONE) {
+    Serial.println("No SD Card attached");
+    return "No SD Card attached";
+  }
+
+  fs::FS &fs = SD_MMC;
+  Serial.printf("Picture file name: %s\n", path.c_str());
+
+  File file = fs.open(path.c_str(), FILE_WRITE);
+  if (!file) {
+    Serial.println("Failed to open file in writing mode");
+  } else {
+    file.write(fb->buf, fb->len); // payload (image), payload length
+    Serial.printf("Saved file to path: %s\n", path.c_str());
+  }
+  file.close();
+  return "";
+}
+
+/*
+ * uploadImage
+ * make an HTTP POST multipart/form-data submission to events_port and events_host
+ * e.g. POST http://#{events_host}:#{events_port}/events -d filename=motion-capture.jpg
+ * see: https://stackoverflow.com/questions/53264373/esp32-try-to-send-image-file-to-php-with-httpclient
+ **/
+String header(String token,size_t length) {
+  String  data;
+  data =  F("POST /events HTTP/1.1\r\n");
+  data += F("cache-control: no-cache\r\n");
+  data += F("Content-Type: multipart/form-data; boundary=");
+  data += BOUNDARY;
+  data += "\r\n";
+  data += F("User-Agent: <%= @config[:events][:name] %>\r\n");
+  data += F("Accept: */*\r\n");
+  data += F("Host: ");
+  data += events_host;
+  data += F("\r\n");
+  data += F("accept-encoding: gzip, deflate\r\n");
+  data += F("Connection: keep-alive\r\n");
+  data += F("content-length: ");
+  data += String(length);
+  data += "\r\n";
+  data += "\r\n";
+  return data;
+}
+
+String body(String content , String message) {
+  String data;
+  data = "--";
+  data += BOUNDARY;
+  data += F("\r\n");
+  if(content=="imageFile") {
+    data += F("Content-Disposition: form-data; name=\"imageFile\"; filename=\"picture.jpg\"\r\n");
+    data += F("Content-Type: image/jpeg\r\n");
+    data += F("\r\n");
+  } else {
+    data += "Content-Disposition: form-data; name=\"" + content +"\"\r\n";
+    data += "\r\n";
+    data += message;
+    data += "\r\n";
+  }
+  return data;
+}
+
+String uploadImage(camera_fb_t *fb) {
+// String sendImage(String token,String message, uint8_t *data_pic,size_t size_pic)
+  //         res = sendImage("asdw","A54S89EF5",cam.getfb(),cam.getSize());
+  const uint8_t *data_pic = fb->buf;
+  const size_t size_pic   = fb->len;
+  String token   = "coolbeans";
+  String message = "hello";
+  String bodyTxt = body("message",message);
+  String bodyPic = body("imageFile",message);
+  String bodyEnd = String("--")+BOUNDARY+String("--\r\n");
+  size_t allLen  = bodyTxt.length()+bodyPic.length()+size_pic+bodyEnd.length();
+  String headerTxt =  header(token,allLen);
+
+  //WiFiClientSecure client;
+  WiFiClient client;
+  if (!client.connect(events_host,events_port)) {
+    errorBlink(1);
+    return "connection failed";
+  }
+
+  client.print(headerTxt+bodyTxt+bodyPic);
+  client.write(data_pic,size_pic);
+  client.print("\r\n"+bodyEnd);
+
+  delay(20);
+  long tOut = millis() + TIMEOUT;
+  while (client.connected() && tOut > millis()) {
+    if (client.available()) {
+      String serverRes = client.readStringUntil('\r');
+      return serverRes;
+    }
+  }
+  return "No Response?";
+}
+
+void snapshot(String (*handler)(camera_fb_t *)) {
   camera_config_t config;
   // configure the board to use the camera
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -64,12 +186,6 @@ void snapshot() {
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
 
-  // Flashlight and SD card
-  /*pinMode(4, INPUT);
-  digitalWrite(4, LOW);
-  rtc_gpio_hold_dis(GPIO_NUM_4);
-  */
-
   if (psramFound()) {
     config.frame_size = FRAMESIZE_UXGA; // FRAMESIZE_ + QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA
     config.jpeg_quality = 10;
@@ -83,105 +199,52 @@ void snapshot() {
   // Init Camera
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
+    errorBlink(1);
     Serial.printf("Camera init failed with error 0x%x", err);
     return;
   }
 
-  Serial.println("Starting SD Card");
-
+  // blink the red light
+  digitalWrite(GPIO_NUM_12, LOW);
   delay(500);
-  if (!SD_MMC.begin()) {
-    Serial.println("SD Card Mount Failed");
-    //return;
-  }
-
-  uint8_t cardType = SD_MMC.cardType();
-  if (cardType == CARD_NONE) {
-    Serial.println("No SD Card attached");
-    return;
-  }
+  digitalWrite(GPIO_NUM_12, HIGH);
 
   camera_fb_t * fb = NULL;
 
   // Take Picture with Camera
   fb = esp_camera_fb_get();
   if (!fb) {
+    errorBlink(1);
     Serial.println("Camera capture failed");
     return;
   }
-  // initialize EEPROM with predefined size
-  EEPROM.begin(EEPROM_SIZE);
-  pictureNumber = EEPROM.read(0) + 1;
 
-  // Path where new picture will be saved in SD Card
-  String path = "/picture" + String(pictureNumber) +".jpg";
+  (*handler)(fb);
 
-  fs::FS &fs = SD_MMC;
-  Serial.printf("Picture file name: %s\n", path.c_str());
-
-  File file = fs.open(path.c_str(), FILE_WRITE);
-  if(!file){
-    Serial.println("Failed to open file in writing mode");
-  }
-  else {
-    file.write(fb->buf, fb->len); // payload (image), payload length
-    Serial.printf("Saved file to path: %s\n", path.c_str());
-    EEPROM.write(0, pictureNumber);
-    EEPROM.commit();
-  }
-  file.close();
   esp_camera_fb_return(fb);
-
-  // now upload the captured photo
-
-  delay(1000);
-
-  // Turns off the ESP32-CAM white on-board LED (flash) connected to GPIO 4
-  /*pinMode(4, OUTPUT);
-  digitalWrite(4, LOW);
-  rtc_gpio_hold_en(GPIO_NUM_4);
-  */
 }
 
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // disable brownout detector... we're on battery hopefully this is ok...
 
-  //pinMode(GPIO_NUM_13, INPUT);
-  pinMode(GPIO_NUM_12, OUTPUT);
-  digitalWrite(GPIO_NUM_12, HIGH);
+  pinMode(GPIO_NUM_13, INPUT); // PIR/motion sensor radar
+  pinMode(GPIO_NUM_12, OUTPUT); // led for showing we detected motion
 
   Serial.begin(115200);
-
-  //Serial.setDebugOutput(true);
-
-  snapshot();
-
-  Serial.println("blinking before sleep");
-  delay(1000);
-  digitalWrite(GPIO_NUM_12, LOW);
-  delay(1000);
+  // blink once on boot
   digitalWrite(GPIO_NUM_12, HIGH);
   delay(1000);
   digitalWrite(GPIO_NUM_12, LOW);
   delay(1000);
-  digitalWrite(GPIO_NUM_12, HIGH);
-  delay(1000);
-  digitalWrite(GPIO_NUM_12, LOW);
-  delay(1000);
-  digitalWrite(GPIO_NUM_12, HIGH);
-  delay(3000);
-
-  // Transisitor 2N3904 E,B,C with E connected to ground, B connected to 1k resistor and output from RCWL-0516, C connected to 10k resistor and green LED so we know when the led turns off we have motion
-  esp_sleep_enable_ext0_wakeup(GPIO_NUM_13, LOW);
-
-  esp_deep_sleep_start();
-  Serial.println("This will never be printed");
 }
 
 void loop() {
   int motion = digitalRead(GPIO_NUM_13);
   if (motion == HIGH) {
     digitalWrite(GPIO_NUM_12, HIGH);
+    errorBlink(1);
+    //snapshot(&uploadImage);
+    delay(1000); // pause
   } else {
     digitalWrite(GPIO_NUM_12, LOW);
   }
