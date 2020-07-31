@@ -1,3 +1,5 @@
 .pio
 src/*.*
 conf.yml
+esp.core
+EspStackTraceDecoder
