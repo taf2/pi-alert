@@ -3,14 +3,21 @@ require 'time'
 require 'sinatra'
 require "sinatra/json"
 
+counter = Dir['./public/*.jpg'].size
+
 # event from a node can include image or video data
 # expects json data but can also receive multipart/form-data
 # with a file parameter
 post '/event' do
   request.body.rewind
+  if counter  > 100
+    counter = 0
+  end
 
   epoch_time = Time.now.to_i
-  filename = "./public/#{epoch_time}.jpg"
+  filename = "./public/#{counter}.jpg"
+  counter += 1
+
   File.open(filename, "wb") {|f| f << request.body.read }
   puts "writing #{filename}"
 

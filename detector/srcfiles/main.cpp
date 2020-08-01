@@ -25,7 +25,7 @@ static const size_t bufferSize = 4096;
 static uint8_t buffer[bufferSize] = {0xFF};
 static char hexBuffer[1024];
 
-void camCapture(ArduCAM myCAM) {
+int camCapture(ArduCAM myCAM) {
   WiFiClient client;
   myCAM.clear_fifo_flag();
   unsigned int i = 0;
@@ -34,18 +34,18 @@ void camCapture(ArduCAM myCAM) {
 
   if (!client.connect("<%= @config[:events][:host] %>", <%= @config[:events][:port] %>)) {
     Serial.println(F("Connection error to <%= @config[:events][:host] %>:<%= @config[:events][:port] %>"));
-    return;
+    return -1;
   }
   Serial.println("connected starting read and upload");
 
   uint32_t len  = myCAM.read_fifo_length();
   if (len >= MAX_FIFO_SIZE) { //8M
     Serial.println(F("Over size."));
-    return;
+    return -1;
   }
   if (len == 0 ) { //0 kb
     Serial.println(F("Size is 0."));
-    return;
+    return -1;
   }
   Serial.println("doing the POST headers");
   client.setNoDelay(true);
@@ -57,26 +57,12 @@ void camCapture(ArduCAM myCAM) {
   Serial.println("Connection: close");
   client.println("Content-Type: image/jpeg");
   Serial.println("Content-Type: image/jpeg");
-//  client.println("Content-Type: multipart/form-data; boundary=----7f27b099bd5c5e4b2259512d68975791");
-//  Serial.println("Content-Type: multipart/form-data; boundary=----7f27b099bd5c5e4b2259512d68975791");
   client.println("Transfer-Encoding: chunked");
   Serial.println("Transfer-Encoding: chunked");
-//  String chunkHeader = "------7f27b099bd5c5e4b2259512d68975791\r\n"
-//                       "Content-Disposition: form-data; name=\"file\"; filename=\"capture.jpg\"\r\n"
-//                       "Content-Type: image/jpeg";
-//  snprintf(hexBuffer, 1024, "%X\r\n", chunkHeader.length());
-//  Serial.print(hexBuffer);
-//  client.print(hexBuffer);
-
-//  Serial.print(chunkHeader.c_str());
-//  client.print(chunkHeader.c_str());
 
   myCAM.CS_LOW();
   myCAM.set_fifo_burst();
-  if (!client.connected()) { return; }
-//  Serial.println("\nreading data into buffers to send...");
-//  Serial.println(len);
-//  Serial.println();
+  if (!client.connected()) { return -1; }
 
   String buftest; // for testing
 
@@ -87,7 +73,7 @@ void camCapture(ArduCAM myCAM) {
     if ( (temp == 0xD9) && (temp_last == 0xFF) ) { //If find the end ,break while,
       buffer[i++] = temp;  //save the last  0XD9
       //Write the remain bytes in the buffer
-      if (!client.connected()) break;
+      if (!client.connected()) { break; }
       //Serial.println("\nlast bytes...");
       //buftest = "last chunk";
       snprintf(hexBuffer, 1024, "\r\n%X\r\n", i);
@@ -130,16 +116,10 @@ void camCapture(ArduCAM myCAM) {
       buffer[i++] = temp;
     }
   }
-/*  String lastBoundary = "------7f27b099bd5c5e4b2259512d68975791--";
-  snprintf(hexBuffer, 1024, "\r\n%X\r\n", lastBoundary.length());
-  client.print(hexBuffer);
-  Serial.print(hexBuffer);
-  Serial.print(lastBoundary.c_str());
-  client.print(buftest.c_str());
-  */
   Serial.print("\r\n0\r\n\r\n");
   client.print("\r\n0\r\n\r\n");
   client.stop();
+  return 0;
 }
 
 void postEvent() {
@@ -216,7 +196,7 @@ void setup() {
   connectWifi();
 }
 
-void motionCapture() {
+int motionCapture() {
   myCAM.flush_fifo();
   myCAM.clear_fifo_flag();
   myCAM.start_capture();
@@ -233,12 +213,16 @@ void motionCapture() {
   total_time = 0;
   Serial.println(F("CAM Capture Done."));
   total_time = millis();
-  camCapture(myCAM);
-
-  total_time = millis() - total_time;
-  Serial.print(F("send total_time used (in miliseconds):"));
-  Serial.println(total_time, DEC);
-  Serial.println(F("CAM send Done."));
+  if (!camCapture(myCAM)) {
+    total_time = millis() - total_time;
+    Serial.print(F("send total_time used (in miliseconds):"));
+    Serial.println(total_time, DEC);
+    Serial.println(F("CAM send Done."));
+    return 0;
+  } else {
+    Serial.println(F("Error sending."));
+    return -1;
+  }
 }
 
 void loop() {
@@ -248,13 +232,17 @@ void loop() {
     digitalWrite(RED_LED, HIGH);
     Serial.println("signal event");
     //postEvent();
-    motionCapture();
-
-    Serial.println("event delivered waiting 10 seconds");
-    delay(10000);
-    Serial.println("going low");
-    digitalWrite(RED_LED, LOW);
-    delay(2000);
+    if (!motionCapture()) {
+      Serial.println("event delivered waiting 10 seconds");
+      delay(10000);
+      Serial.println("going low");
+      digitalWrite(RED_LED, LOW);
+      delay(2000);
+    } else {
+      Serial.println("error going low");
+      digitalWrite(RED_LED, LOW);
+      delay(2000);
+    }
   } else {
     digitalWrite(RED_LED, LOW);
   }
