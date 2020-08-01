@@ -7,20 +7,27 @@ require "sinatra/json"
 # expects json data but can also receive multipart/form-data
 # with a file parameter
 post '/event' do
-  @filename = params.dig(:file,:filename)
-  file = params.dig(:file,:tempfile)
-  if file
-    puts "received a file write to public as #{@filename.inspect}"
-    # TODO
-    File.open("./public/#{@filename}", 'wb') do |f|
-      f.write(file.read)
-    end
-  end
+  request.body.rewind
+
+  epoch_time = Time.now.to_i
+  filename = "./public/#{epoch_time}.jpg"
+  File.open(filename, "wb") {|f| f << request.body.read }
+  puts "writing #{filename}"
 
   # respond with json including the time of day
   json({
-    epoch_time: Time.now.to_i
+    epoch_time: epoch_time
   })
+end
+
+
+get '/' do
+%(
+<form action="/event" method="POST" enctype="multipart/form-data">
+  <input type="file" name="file"/>
+  <input type="submit" value="go"/>
+</form>
+)
 end
 
 get '/time' do

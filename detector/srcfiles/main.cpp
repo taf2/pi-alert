@@ -8,6 +8,8 @@
 #include <ArduCAM.h>
 #include <SPI.h>
 #include "memorysaver.h"
+//#include "stdlib_noniso.h"
+
 
 #define OV2640_MINI_2MP
 
@@ -21,6 +23,7 @@ ArduCAM myCAM(OV2640, CS);
 
 static const size_t bufferSize = 4096;
 static uint8_t buffer[bufferSize] = {0xFF};
+static char hexBuffer[1024];
 
 void camCapture(ArduCAM myCAM) {
   WiFiClient client;
@@ -33,7 +36,7 @@ void camCapture(ArduCAM myCAM) {
     Serial.println(F("Connection error to <%= @config[:events][:host] %>:<%= @config[:events][:port] %>"));
     return;
   }
-  Serial.print("connected starting read and upload");
+  Serial.println("connected starting read and upload");
 
   uint32_t len  = myCAM.read_fifo_length();
   if (len >= MAX_FIFO_SIZE) { //8M
@@ -44,25 +47,39 @@ void camCapture(ArduCAM myCAM) {
     Serial.println(F("Size is 0."));
     return;
   }
-  Serial.print("doing the POST headers");
+  Serial.println("doing the POST headers");
   client.setNoDelay(true);
   client.println("POST /event HTTP/1.1");
+  Serial.println("POST /event HTTP/1.1");
   client.println("Host: <%= @config[:events][:host] %>");
+  Serial.println("Host: <%= @config[:events][:host] %>");
   client.println("Connection: close");
-  client.println("Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryjg2qVIUS8teOAbN3");
-  client.print("Content-Length: ");
-  client.println(len+196);  //+196 is owerhead form boundary tags
-  client.println();
-  client.println("------WebKitFormBoundaryjg2qVIUS8teOAbN3");
-  client.println("Content-Disposition: form-data; name=\"FileGDF\"; filename=\"image19.jpg\"");
-  client.println("Content-Type: application/octet-stream");
-  client.println();
-  Serial.print("post headers sent");
+  Serial.println("Connection: close");
+  client.println("Content-Type: image/jpeg");
+  Serial.println("Content-Type: image/jpeg");
+//  client.println("Content-Type: multipart/form-data; boundary=----7f27b099bd5c5e4b2259512d68975791");
+//  Serial.println("Content-Type: multipart/form-data; boundary=----7f27b099bd5c5e4b2259512d68975791");
+  client.println("Transfer-Encoding: chunked");
+  Serial.println("Transfer-Encoding: chunked");
+//  String chunkHeader = "------7f27b099bd5c5e4b2259512d68975791\r\n"
+//                       "Content-Disposition: form-data; name=\"file\"; filename=\"capture.jpg\"\r\n"
+//                       "Content-Type: image/jpeg";
+//  snprintf(hexBuffer, 1024, "%X\r\n", chunkHeader.length());
+//  Serial.print(hexBuffer);
+//  client.print(hexBuffer);
+
+//  Serial.print(chunkHeader.c_str());
+//  client.print(chunkHeader.c_str());
 
   myCAM.CS_LOW();
   myCAM.set_fifo_burst();
   if (!client.connected()) { return; }
-  Serial.print("reading data into buffers to send ");
+//  Serial.println("\nreading data into buffers to send...");
+//  Serial.println(len);
+//  Serial.println();
+
+  String buftest; // for testing
+
   while (len--) {
     temp_last = temp;
     temp =  SPI.transfer(0x00);
@@ -71,6 +88,15 @@ void camCapture(ArduCAM myCAM) {
       buffer[i++] = temp;  //save the last  0XD9
       //Write the remain bytes in the buffer
       if (!client.connected()) break;
+      //Serial.println("\nlast bytes...");
+      //buftest = "last chunk";
+      snprintf(hexBuffer, 1024, "\r\n%X\r\n", i);
+      //snprintf(hexBuffer, 1024, "\r\n%X\r\n", buftest.length());
+      client.print(hexBuffer);
+      Serial.print(hexBuffer);
+      //Serial.print(buftest.c_str());
+
+      //client.print(buftest.c_str());
       client.write(&buffer[0], i);
       is_header = false;
       i = 0;
@@ -85,6 +111,15 @@ void camCapture(ArduCAM myCAM) {
       } else {
         //Write bufferSize bytes image data to file
         if (!client.connected()) { break; }
+        //Serial.println("\nwriting buffered chunk bytes...");
+        snprintf(hexBuffer, 1024, "\r\n%X\r\n", bufferSize);
+        //buftest = "chunk";
+        //snprintf(hexBuffer, 1024, "\r\n%X\r\n", buftest.length());
+        client.print(hexBuffer);
+        Serial.print(hexBuffer);
+        //Serial.print(buftest.c_str());
+        //client.print(buftest.c_str());
+
         client.write(&buffer[0], bufferSize);
         i = 0;
         buffer[i++] = temp;
@@ -95,6 +130,15 @@ void camCapture(ArduCAM myCAM) {
       buffer[i++] = temp;
     }
   }
+/*  String lastBoundary = "------7f27b099bd5c5e4b2259512d68975791--";
+  snprintf(hexBuffer, 1024, "\r\n%X\r\n", lastBoundary.length());
+  client.print(hexBuffer);
+  Serial.print(hexBuffer);
+  Serial.print(lastBoundary.c_str());
+  client.print(buftest.c_str());
+  */
+  Serial.print("\r\n0\r\n\r\n");
+  client.print("\r\n0\r\n\r\n");
   client.stop();
 }
 
@@ -137,9 +181,33 @@ void connectWifi() {
   Serial.println(WiFi.localIP());
 }
 
+void SPI_setup() {
+  uint8_t temp;
+#if defined(__SAM3X8E__)
+  Wire1.begin();
+#else
+  Wire.begin();
+#endif
+  Serial.begin(115200);
+  Serial.println(F("ArduCAM Start!"));
+  // set the CS as an output:
+  pinMode(CS, OUTPUT);
+  // initialize SPI:
+  SPI.begin();
+  SPI.setFrequency(4000000); //4MHz
+  //Check if the ArduCAM SPI bus is OK
+  myCAM.write_reg(ARDUCHIP_TEST1, 0x55);
+  temp = myCAM.read_reg(ARDUCHIP_TEST1);
+  if (temp != 0x55) {
+    Serial.println(F("SPI1 interface Error!"));
+    while (1);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   delay(8000);
+  SPI_setup();
   pinMode(RED_LED, OUTPUT); // red led
   digitalWrite(RED_LED, HIGH);
   myCAM.set_format(JPEG);
