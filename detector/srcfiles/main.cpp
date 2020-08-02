@@ -193,6 +193,7 @@ void setup() {
   myCAM.set_format(JPEG);
   myCAM.InitCAM();
   myCAM.OV2640_set_JPEG_size(OV2640_1024x768);
+
   connectWifi();
 }
 
@@ -230,14 +231,11 @@ void loop() {
   if (motion > 1000) {
     Serial.println("motion detected");
     digitalWrite(RED_LED, HIGH);
-    Serial.println("signal event");
     //postEvent();
     if (!motionCapture()) {
       Serial.println("event delivered waiting 10 seconds");
-      delay(10000);
-      Serial.println("going low");
       digitalWrite(RED_LED, LOW);
-      delay(2000);
+      delay(10000);
     } else {
       Serial.println("error going low");
       digitalWrite(RED_LED, LOW);
