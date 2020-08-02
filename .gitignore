@@ -2,3 +2,5 @@ result.jpg
 image1.jpg
 *.pyc
 *.swp
+public/*.jpg
+.DS_Store
