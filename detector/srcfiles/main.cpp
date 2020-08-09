@@ -235,7 +235,7 @@ void loop() {
     if (!motionCapture()) {
       Serial.println("event delivered waiting 10 seconds");
       digitalWrite(RED_LED, LOW);
-      delay(10000);
+      delay(500);
     } else {
       Serial.println("error going low");
       digitalWrite(RED_LED, LOW);
