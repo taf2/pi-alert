@@ -25,10 +25,13 @@ def detection(image_file)
   img.save_jpeg(output_file)
 end
 
+post '/event' do
+end
+
 # event from a node can include image or video data
 # expects json data but can also receive multipart/form-data
 # with a file parameter
-post '/event' do
+post '/capture' do
   request.body.rewind
   if counter  > 100
     counter = 0

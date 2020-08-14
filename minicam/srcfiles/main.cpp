@@ -243,7 +243,7 @@ void loop() {
   if (motion == HIGH) {
     digitalWrite(GPIO_NUM_12, HIGH);
     errorBlink(1);
-    //snapshot(&uploadImage);
+    snapshot(&uploadImage);
     delay(1000); // pause
   } else {
     digitalWrite(GPIO_NUM_12, LOW);

@@ -49,8 +49,8 @@ int camCapture(ArduCAM myCAM) {
   }
   Serial.println("doing the POST headers");
   client.setNoDelay(true);
-  client.println("POST /event HTTP/1.1");
-  Serial.println("POST /event HTTP/1.1");
+  client.println("POST /capture HTTP/1.1");
+  Serial.println("POST /capture HTTP/1.1");
   client.println("Host: <%= @config[:events][:host] %>");
   Serial.println("Host: <%= @config[:events][:host] %>");
   client.println("Connection: close");
@@ -200,6 +200,8 @@ void setup() {
 int motionCapture() {
   myCAM.flush_fifo();
   myCAM.clear_fifo_flag();
+//  arducam_set_control(myCAM, V4L2_CID_FOCUS_ABSOLUTE, 190);
+
   myCAM.start_capture();
 
   Serial.println(F("CAM Capturing"));
@@ -230,7 +232,7 @@ void loop() {
   int motion = analogRead(A0);
   if (motion > 1000) {
     Serial.println("motion detected");
-    digitalWrite(RED_LED, HIGH);
+    //digitalWrite(RED_LED, HIGH);
     //postEvent();
     if (!motionCapture()) {
       Serial.println("event delivered waiting 10 seconds");
