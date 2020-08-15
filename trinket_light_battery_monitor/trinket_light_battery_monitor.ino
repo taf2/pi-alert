@@ -109,7 +109,7 @@ void loop() {
   if (light > 100) { // light
     ++litcount;
   
-    if (litcount > 10) {
+    if (litcount > 10) { 
       dimcount = 0;
       
       if (litcount < 30) {

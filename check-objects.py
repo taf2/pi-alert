@@ -229,15 +229,26 @@ if __name__ == '__main__':
     def object_detect(task_data):
       node_name      = task_data['name']
       node_video_url = task_data['url']
+      node_type      = task_data['type']
+      check_all_frames = False
 
       # fetch from the node's ip the video file
       # use opencv to do object detection
-      downloaded_video_path = "/tmp/video.mp4"
+      if node_type == 'jpg':
+        downloaded_video_path = "/tmp/video.jpg"
+        check_all_frames = True
+      else:
+        downloaded_video_path = "/tmp/video.mp4"
 
       with urllib.request.urlopen(node_video_url) as response:
         download_file_handle = open(downloaded_video_path, "wb")
         download_file_handle.write(response.read())
         download_file_handle.close()
+
+      # hacks to convert the jpg to a single frame video so rest of code stays the same
+      if node_type == 'jpg':
+        os.system("ffmpeg -y -i /tmp/video.jpg /tmp/video.mp4")
+        downloaded_video_path = "/tmp/video.mp4"
 
       fourcc = cv2.VideoWriter_fourcc(*'mp4v')
       cap = cv2.VideoCapture(downloaded_video_path)
@@ -264,7 +275,7 @@ if __name__ == '__main__':
 
 
           frame_count += 1
-          if frame_count % check_interval == 0 and checked_frames < max_check_frames:
+          if check_all_frames or (frame_count % check_interval == 0 and checked_frames < max_check_frames):
             print("check frames: %d" % frame_count)
             checked_frames += 1
 

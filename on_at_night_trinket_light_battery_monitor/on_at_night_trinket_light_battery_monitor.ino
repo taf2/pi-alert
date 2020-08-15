@@ -49,7 +49,7 @@ void setup() {
     blinkPhase(i);
     
   }
-  digitalWrite(LED, LOW);
+   digitalWrite(LED, LOW);
   digitalWrite(VLED, LOW);
 
 }
