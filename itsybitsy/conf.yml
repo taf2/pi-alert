@@ -1,0 +1,6 @@
+:ssid: 'hqfish'
+:pass: '670fisher'
+:events:
+  :host: '192.168.2.120'
+  :port: '4567'
+  :name: 'TinyPICO-Fountain'
