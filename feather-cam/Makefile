@@ -14,7 +14,7 @@ monitor:
 	pio device monitor
 
 configure:
-	pio lib install "Adafruit VC0706 Serial Camera Library"
+	pio lib install "arducam/ArduCAM"
 
 clean:
 	pio run --target clean

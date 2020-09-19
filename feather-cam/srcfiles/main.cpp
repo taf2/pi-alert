@@ -2,8 +2,13 @@
 #include <Wire.h>
 #include <Arduino.h>
 #include <Adafruit_VC0706.h>
+
+#include <ArduCAM.h>
 #include <SPI.h>
-#include <pthread.h>
+#include "memorysaver.h"
+#include "ov5642_regs.h"
+
+#define CAM1_CS A1
 
 #define LED_PIN A0
 
@@ -12,20 +17,35 @@
 
 static void connectToWiFi(const char * ssid, const char * pwd);
 static void cameraInit();
+static void cameraBigInit();
 static int uploadPicture();
+static int uploadHighQuality();
 static char outbuffer[1024];
 static uint8_t picbuf[PICBUF];
 static uint16_t picOffset = 0;
 
-const char *ssid    =  "<%= @config[:ssid] %>";
-const char *pass    =  "<%= @config[:pass] %>";
+const char      *ssid    =  "<%= @config[:ssid] %>";
+const char      *pass    =  "<%= @config[:pass] %>";
 Adafruit_VC0706 cam = Adafruit_VC0706(&CameraConnection);
+ArduCAM         bigCam(OV5642, CAM1_CS);
+
 
 void setup() {
   delay(1000);
   Serial.begin(115200);
+  delay(1000);
   Serial.println(F("Booting"));
+
   pinMode(LED_PIN, OUTPUT);
+  
+  pinMode(CAM1_CS,OUTPUT);
+  digitalWrite(CAM1_CS, HIGH);
+
+  Wire.begin();
+  SPI.begin();
+
+
+  cameraBigInit();
   connectToWiFi(ssid, pass);
 
   delay(1000);
@@ -35,12 +55,13 @@ void setup() {
   delay(3000);
   uploadPicture();
   cam.setMotionDetect(true);           // turn it on
-    // You can also verify whether motion detection is active!
+  // You can also verify whether motion detection is active!
   Serial.print("Motion detection is ");
-  if (cam.getMotionDetect())
+  if (cam.getMotionDetect()) {
     Serial.println("ON");
-  else
+  } else {
     Serial.println("OFF");
+  }
 
 }
 
@@ -86,6 +107,47 @@ void connectToWiFi(const char * ssid, const char * pwd) {
   Serial.println(WiFi.localIP());
 }
 
+static void cameraBigInit() {
+  uint8_t vid, pid;
+  uint8_t temp;
+  int attempts = 0;
+
+  Serial.println("OV5642 Camera Init");
+  SPI.setFrequency(4000000); //4MHz
+  delay(2000);
+
+  bigCam.write_reg(ARDUCHIP_TEST1, 0x55);
+  temp = bigCam.read_reg(ARDUCHIP_TEST1);
+
+  if (temp != 0x55) {
+    while(1) {
+      Serial.println("SPI1 interface Error!");
+      delay(10000);
+    }
+  }
+
+  bigCam.clear_bit(ARDUCHIP_GPIO,GPIO_PWDN_MASK); //disable low power
+  delay(1000);
+  //Check if the camera module type is OV5640
+  while (1) {
+    bigCam.wrSensorReg16_8(0xff, 0x01);
+    bigCam.rdSensorReg16_8(OV5642_CHIPID_HIGH, &vid);
+    bigCam.rdSensorReg16_8(OV5642_CHIPID_LOW, &pid);
+    if ((vid != 0x56) || (pid != 0x42)) {
+      snprintf(outbuffer, 1023, "Ack cmd can't find OV5642 module attempt %d vid:%X, pid: %X\n", attempts++, vid, pid);
+      Serial.print(outbuffer);
+      delay(1000);
+    } else {
+      Serial.println("OV5642 detected.");
+      break;
+    }
+  }
+  bigCam.set_format(JPEG);
+  bigCam.InitCAM();
+  bigCam.write_reg(ARDUCHIP_TIM, VSYNC_LEVEL_MASK);   //VSYNC is active HIGH
+  bigCam.OV5642_set_JPEG_size(OV5642_320x240);
+  delay(1000);
+}
 static void cameraInit() {
   Serial.println("VC0706 Camera Init");
 
@@ -218,4 +280,7 @@ int uploadPicture() {
   Serial.println("closing connection");
   client.stop();
   return 0;
+}
+
+static int uploadHighQuality() {
 }
