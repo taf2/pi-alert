@@ -118,16 +118,23 @@ static void cameraInit() {
 //  cam.setCompression(0x95);
 //  cam.getCompression();
 //
-  cam.setImageSize(VC0706_640x480);        // biggest
-  // cam.setImageSize(VC0706_320x240);        // medium
-  // cam.setImageSize(VC0706_160x120);          // small
+  // boolean status = cam.setImageSize(VC0706_640x480);        // biggest
+  // boolean status = cam.setImageSize(VC0706_320x240);        // medium
+  boolean status = cam.setImageSize(VC0706_160x120);          // small
+  if (!status) {
+    Serial.println("error setting image size");
+  }
 
   // You can read the size back from the camera (optional, but maybe useful?)
   uint8_t imgsize = cam.getImageSize();
-  Serial.print("Image size: ");
-  if (imgsize == VC0706_640x480) Serial.println("640x480");
-  if (imgsize == VC0706_320x240) Serial.println("320x240");
-  if (imgsize == VC0706_160x120) Serial.println("160x120");
+  if (imgsize == -1) {
+    Serial.println("error getting image size");
+  } else {
+    Serial.print("Image size: ");
+    if (imgsize == VC0706_640x480) Serial.println("640x480");
+    if (imgsize == VC0706_320x240) Serial.println("320x240");
+    if (imgsize == VC0706_160x120) Serial.println("160x120");
+  }
 
 }
 
