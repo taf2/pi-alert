@@ -60,10 +60,8 @@ GEM
     concurrent-ruby (1.1.7)
     crass (1.0.6)
     curb (0.9.10)
-    daemons (1.3.1)
     dlib (1.2.2)
     erubi (1.9.0)
-    eventmachine (1.2.7)
     globalid (0.4.2)
       activesupport (>= 4.2.0)
     i18n (1.8.5)
@@ -87,6 +85,8 @@ GEM
     nio4r (2.5.3)
     nokogiri (1.10.10)
       mini_portile2 (~> 2.4.0)
+    puma (5.0.0)
+      nio4r (~> 2.0)
     rack (2.2.3)
     rack-protection (2.1.0)
       rack
@@ -139,10 +139,6 @@ GEM
       actionpack (>= 4.0)
       activesupport (>= 4.0)
       sprockets (>= 3.0.0)
-    thin (1.7.2)
-      daemons (~> 1.0, >= 1.0.9)
-      eventmachine (~> 1.0, >= 1.0.4)
-      rack (>= 1, < 3)
     thor (1.0.1)
     thread_safe (0.3.6)
     tilt (2.0.10)
@@ -160,11 +156,11 @@ DEPENDENCIES
   curb
   dlib
   json
+  puma
   rails
   redis
   sinatra
   sinatra-contrib
-  thin
 
 BUNDLED WITH
    1.17.2

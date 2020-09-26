@@ -13,8 +13,8 @@ targets: srcfiles/main.cpp
 monitor:
 	pio device monitor
 
-configure:
-	pio lib install "arducam/ArduCAM"
+#configure:
+#	pio lib install "arducam/ArduCAM"
 
 clean:
 	pio run --target clean

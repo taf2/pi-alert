@@ -62,9 +62,11 @@ int camCapture(ArduCAM myCAM) {
 
   myCAM.CS_LOW();
   myCAM.set_fifo_burst();
-  if (!client.connected()) { return -1; }
+  if (!client.connected()) { Serial.print("connection lost!\n"); return -1; }
 
   String buftest; // for testing
+
+  short errorSending = 0;
 
   while (len--) {
     temp_last = temp;
@@ -73,7 +75,7 @@ int camCapture(ArduCAM myCAM) {
     if ( (temp == 0xD9) && (temp_last == 0xFF) ) { //If find the end ,break while,
       buffer[i++] = temp;  //save the last  0XD9
       //Write the remain bytes in the buffer
-      if (!client.connected()) { break; }
+      if (!client.connected()) { Serial.print("lost connection!1\n"); errorSending = 1; break; }
       //Serial.println("\nlast bytes...");
       //buftest = "last chunk";
       snprintf(hexBuffer, 1024, "\r\n%X\r\n", i);
@@ -96,7 +98,7 @@ int camCapture(ArduCAM myCAM) {
         buffer[i++] = temp;
       } else {
         //Write bufferSize bytes image data to file
-        if (!client.connected()) { break; }
+        if (!client.connected()) { Serial.print("lost connection!2\n"); errorSending = 1; break; }
         //Serial.println("\nwriting buffered chunk bytes...");
         snprintf(hexBuffer, 1024, "\r\n%X\r\n", bufferSize);
         //buftest = "chunk";
@@ -119,7 +121,7 @@ int camCapture(ArduCAM myCAM) {
   Serial.print("\r\n0\r\n\r\n");
   client.print("\r\n0\r\n\r\n");
   client.stop();
-  return 0;
+  return errorSending;
 }
 
 void postEvent() {
@@ -155,10 +157,10 @@ void connectWifi() {
     digitalWrite(RED_LED, HIGH);
     Serial.print(F("."));
   }
-  digitalWrite(RED_LED, LOW);
   Serial.println(F("WiFi connected"));
   Serial.println("");
   Serial.println(WiFi.localIP());
+  digitalWrite(RED_LED, HIGH); // stay high so we know it's working
 }
 
 void SPI_setup() {
@@ -232,12 +234,12 @@ void loop() {
   int motion = analogRead(A0);
   if (motion > 1000) {
     Serial.println("motion detected");
-    //digitalWrite(RED_LED, HIGH);
+    digitalWrite(RED_LED, HIGH);
     //postEvent();
     if (!motionCapture()) {
-      Serial.println("event delivered waiting 10 seconds");
+      Serial.println("event delivered waiting 1.5 seconds");
+      delay(1500);
       digitalWrite(RED_LED, LOW);
-      delay(500);
     } else {
       Serial.println("error going low");
       digitalWrite(RED_LED, LOW);

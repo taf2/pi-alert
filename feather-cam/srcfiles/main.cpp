@@ -2,11 +2,16 @@
 #include <Wire.h>
 #include <Arduino.h>
 #include <Adafruit_VC0706.h>
+#define OV5642_MINI_5MP
+#define ESP8266
 
-#include <ArduCAM.h>
+#include "_ArduCAM.h"
 #include <SPI.h>
 #include "memorysaver.h"
 #include "ov5642_regs.h"
+
+#define OV5642_MAX_FIFO_SIZE		0x7FFFFF		//8MByte
+
 
 #define CAM1_CS A1
 
@@ -48,12 +53,20 @@ void setup() {
   cameraBigInit();
   connectToWiFi(ssid, pass);
 
+#ifdef __arm__
+  Serial.println("ARM processor defined");
+#endif
+#ifdef ESP32
+  Serial.println("ESP32 processor defined");
+#endif
+
   delay(1000);
 
-  cameraInit();
+  //cameraInit();
   Serial.println("Snap in 3 secs...");
   delay(3000);
-  uploadPicture();
+  // uploadPicture();
+    uploadHighQuality();
   cam.setMotionDetect(true);           // turn it on
   // You can also verify whether motion detection is active!
   Serial.print("Motion detection is ");
@@ -128,7 +141,7 @@ static void cameraBigInit() {
 
   bigCam.clear_bit(ARDUCHIP_GPIO,GPIO_PWDN_MASK); //disable low power
   delay(1000);
-  //Check if the camera module type is OV5640
+  //Check if the camera module type is OV5642
   while (1) {
     bigCam.wrSensorReg16_8(0xff, 0x01);
     bigCam.rdSensorReg16_8(OV5642_CHIPID_HIGH, &vid);
@@ -146,7 +159,12 @@ static void cameraBigInit() {
   bigCam.InitCAM();
   bigCam.write_reg(ARDUCHIP_TIM, VSYNC_LEVEL_MASK);   //VSYNC is active HIGH
   bigCam.OV5642_set_JPEG_size(OV5642_320x240);
-  delay(1000);
+  //bigCam.OV5642_set_JPEG_size(OV5642_1024x768);
+  Serial.println("enable disable low power");
+//  bigCam.set_bit(ARDUCHIP_GPIO,GPIO_PWDN_MASK); //enable low power
+//  delay(3000);
+//  bigCam.clear_bit(ARDUCHIP_GPIO,GPIO_PWDN_MASK); //disable low power
+//  delay(1000);
 }
 static void cameraInit() {
   Serial.println("VC0706 Camera Init");
@@ -283,4 +301,109 @@ int uploadPicture() {
 }
 
 static int uploadHighQuality() {
+  uint8_t temp = 0, temp_last = 0;
+  WiFiClient client;
+
+  int32_t time = millis();
+   bigCam.clear_bit(ARDUCHIP_GPIO,GPIO_PWDN_MASK); //disable low power
+   delay(2000);
+
+  // reference: https://platformio.org/lib/show/2094/ArduCAM/examples?file=ArduCAM_Shield_V2_Video_Streaming.ino
+  bigCam.flush_fifo();
+  //Clear the capture done flag
+  bigCam.clear_fifo_flag();
+  //Start capture
+  Serial.println("Start Capture");
+      delay(100);
+  bigCam.start_capture();
+      delay(100);
+  bigCam.start_capture();
+  int o = 0;
+  int count = 0;
+  while (!(o=bigCam.get_bit(ARDUCHIP_TRIG, CAP_DONE_MASK))) {
+    count++;
+    if (count > 1000) {
+      count = 0;
+      Serial.println(o);
+      Serial.println(bigCam.read_fifo_length());
+      delay(100);
+    }
+  };
+  Serial.println("Capture Done!");
+
+  size_t length = bigCam.read_fifo_length();
+
+  if (length >= OV5642_MAX_FIFO_SIZE) {
+     Serial.println("Over size.");
+     return -1;
+  } else if (length == 0 ) {
+    Serial.println("Size is 0.");
+    return -2;
+  }
+
+  bigCam.CS_LOW();
+  bigCam.set_fifo_burst();
+
+  if (!client.connect("<%= @config[:events][:host] %>", <%= @config[:events][:port] %>)) {
+    Serial.println(F("Connection error to <%= @config[:events][:host] %>:<%= @config[:events][:port] %>"));
+    return -2;
+  }
+  Serial.println("connected starting read and upload");
+
+  snprintf(outbuffer, 1024, "POST /capture HTTP/1.1\r\nHost: <%= @config[:events][:host] %>\r\nConnection: close\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n", length);
+  client.write(outbuffer);
+  Serial.write(outbuffer);
+
+  int32_t i=0;
+  bool is_header = false;
+  memset(picbuf, 0, PICBUF);
+
+  while (length-- && client.connected()) {
+    temp_last = temp;
+    temp =  SPI.transfer(0x00);
+    if ( (temp == 0xD9) && (temp_last == 0xFF) ) { //If find the end ,break while,
+      picbuf[i++] = temp;  //save the last  0XD9
+      //Write the remain bytes in the buffer
+      bigCam.CS_HIGH();
+      const size_t sentBytes = client.write(picbuf, i);
+      if (sentBytes != i) {
+        snprintf(outbuffer, 1024, "Error bytes sent: %d != %d\n", sentBytes, i);
+        Serial.println(outbuffer);
+      }
+      Serial.println("IMG save OK!");
+      is_header = false;
+      i = 0;
+    }
+    if (is_header == true) {
+      //Write image data to buffer if not full
+      if (i < PICBUF) {
+        picbuf[i++] = temp;
+      } else {
+        //Write BUF_SIZE bytes image data to file
+        bigCam.CS_HIGH();
+        const size_t sentBytes = client.write(picbuf, i);
+        if (sentBytes != i) {
+          snprintf(outbuffer, 1024, "Error bytes sent: %d != %d\n", sentBytes, i);
+          Serial.println(outbuffer);
+        }
+        i = 0;
+        picbuf[i++] = temp;
+        bigCam.CS_LOW();
+        bigCam.set_fifo_burst();
+      }
+    } else if ((temp == 0xD8) & (temp_last == 0xFF)) {
+      is_header = true;
+      picbuf[i++] = temp_last;
+      picbuf[i++] = temp;
+    }
+  }
+
+  time = millis() - time;
+  Serial.println("done!");
+  Serial.print(time); Serial.println(" ms elapsed");
+
+  Serial.println();
+  Serial.println("closing connection");
+  client.stop();
+  return 0;
 }

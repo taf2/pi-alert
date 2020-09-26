@@ -51,7 +51,6 @@ end
 # expects json data but can also receive multipart/form-data
 # with a file parameter
 post '/capture' do
-  puts "receved capture request"
   request.body.rewind
   if counter  > 100
     counter = 0
