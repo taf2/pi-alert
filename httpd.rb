@@ -14,9 +14,13 @@ JOBS = Queue.new
 JOB_WORKER = Thread.new do
   while (work=JOBS.pop)
     # notify the front porch
-    Curl.get("http://192.68.2.75:5000/") {|http|
-      http.timeout = 20
-    }
+    begin
+      Curl.get("http://192.68.2.75:5000/") {|http|
+        http.timeout = 20
+      }
+    rescue Curl::Err::TimeoutError => e
+      puts "camera node appears offline: #{e.message}"
+    end
   end
 end
 
