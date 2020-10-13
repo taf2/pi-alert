@@ -14,7 +14,6 @@ monitor:
 	pio device monitor
 
 configure:
-	pio lib install "TinyPICO Helper Library"
 
 clean:
 	pio run --target clean
