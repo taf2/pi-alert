@@ -7,8 +7,9 @@ upload: detector
 detector: targets
 	pio run
 
-targets: srcfiles/main.cpp
+targets: srcfiles/main.cpp srcfiles/ArduCAM.cpp
 	ruby build.rb main.cpp
+	ruby build.rb ArduCAM.cpp
 
 monitor:
 	pio device monitor

@@ -2,6 +2,8 @@
 
 #include <TinyPICO.h>
 
+#include <FS.h> // FOR SPIFFS
+
 #include <ArduCAM.h>
 #include <SPI.h>
 
@@ -25,11 +27,9 @@ const int MOTION_PIN = 4;
 
 const char *ssid = "<%= @config[:ssid] %>"; // Put your SSID here
 const char *pass = "<%= @config[:pass] %>"; // Put your PASSWORD here
+const char *node = "<%= @config[:events][:name] %>";
 
-// Internet domain to request from:
-const char * hostDomain = "www.calltrackingmetrics.com";
-const int hostPort = 80;
-uint8_t resolution = OV5642_2592x1944;
+uint8_t resolution = OV5642_640x480;//OV5642_2592x1944;
 
 ArduCAM myCAM(OV5642, CS);
 
@@ -65,7 +65,7 @@ void SPI_setup() {
   }
 }
 
-int camCapture(ArduCAM myCAM) {
+int camCapture(ArduCAM myCAM, int sequence) {
   WiFiClient client;
   myCAM.clear_fifo_flag();
   unsigned int i = 0;
@@ -95,6 +95,10 @@ int camCapture(ArduCAM myCAM) {
   client.println("Host: <%= @config[:events][:host] %>");
   client.println("Connection: close");
   client.println("Content-Type: image/jpeg");
+  snprintf(hexBuffer, 1024, "X-Node: %s", node);
+  client.println(hexBuffer);
+  snprintf(hexBuffer, 1024, "X-Seq: %d", sequence);
+  client.println(hexBuffer);
   client.println("Transfer-Encoding: chunked");
 
   myCAM.CS_LOW();
@@ -166,7 +170,18 @@ void postEvent() {
 
 }
 
-int motionCapture() {
+// the issue with motion is when we trigger if nothing is yet in the viewable frame we'll miss it.
+// so instead here we want to capture a short 10 second video to increase the probablity that whatever 
+// tripped the motion sensor will be caught in a frame.  A possible issue is we won't be saving to sd card (at least not yet)
+// and we might not have enough memory to store all the frames in memory... we'd like to solve this by streaming to our
+// server but eventually we'll probably need/want an sd card for buffer in case we're not connected to wifi
+int videoMotionCapture() {
+// maybe use https://github.com/dmainmon/ArduCAM-mini-ESP8266-12E-Camera-Server/blob/master/ArduCam_ESP8266_FileCapture.ino
+// e.g. capture a bunch of snapshots using local SPIFFS and then flush captured images uploading them to server in a batch
+	return 0;
+}
+
+int motionCapture(int sequence) {
   myCAM.flush_fifo();
   myCAM.clear_fifo_flag();
 //  arducam_set_control(myCAM, V4L2_CID_FOCUS_ABSOLUTE, 190);
@@ -177,8 +192,6 @@ int motionCapture() {
   int total_time = 0;
   total_time = millis();
   while ( !myCAM.get_bit(ARDUCHIP_TRIG, CAP_DONE_MASK)); 
-//  while (!(myCAM.read_reg(ARDUCHIP_TRIG) & CAP_DONE_MASK));
-//  while (!myCAM.get_bit(ARDUCHIP_TRIG, CAP_DONE_MASK));
 
   total_time = millis() - total_time;
   Serial.print(F("capture total_time used (in miliseconds):"));
@@ -186,7 +199,7 @@ int motionCapture() {
   total_time = 0;
   Serial.println(F("CAM Capture Done."));
   total_time = millis();
-  if (!camCapture(myCAM)) {
+  if (!camCapture(myCAM, sequence)) {
     total_time = millis() - total_time;
     Serial.print(F("send total_time used (in miliseconds):"));
     Serial.println(total_time, DEC);
@@ -236,33 +249,51 @@ void setup() {
   digitalWrite(MOTION_LED_PIN, LOW);
 }
 
+int pirState = LOW; // assume start no motion
+int sequence = 0;
+
 void loop() {
-  delay(1000);
 
   long motion = digitalRead(MOTION_PIN);
   if (motion == HIGH) {
     Serial.println("motion detected");
     digitalWrite(MOTION_LED_PIN, HIGH);
-    if (!motionCapture()) {
-      Serial.println("event delivered waiting 1500 ms");
-      digitalWrite(MOTION_LED_PIN, LOW);
-      delay(1500);
-    } else {
-      Serial.println("capture error flash led to signal error, 29 seconds");
-        
-      blink(ON_LED_PIN, 2);
-      blink(MOTION_LED_PIN, 10); // 10 seconds blinking
-      blink(ON_LED_PIN, 2);
+    if (pirState == LOW) {
+      pirState = HIGH; // just turned HIGH
 
-      Serial.println("error state low idle 5 seconds");
-      digitalWrite(MOTION_LED_PIN, LOW);
-      delay(5000);
+      sequence++;
 
-      blink(MOTION_LED_PIN, 10); // 10 seconds blinking
+      if (!motionCapture(sequence)) {
+        yield();
+        Serial.println("capturing 10 more frames from motion trigger");
+        for (int i = 0; i < 10; ++i) {
+          motionCapture(sequence);
+          yield();
+        }
+        //digitalWrite(MOTION_LED_PIN, LOW);
+      } else {
+        Serial.println("capture error flash led to signal error, 29 seconds");
+          
+        blink(ON_LED_PIN, 2);
+        blink(MOTION_LED_PIN, 10); // 10 seconds blinking
+        blink(ON_LED_PIN, 2);
+
+        Serial.println("error state low idle 5 seconds");
+        digitalWrite(MOTION_LED_PIN, LOW);
+        delay(5000);
+
+        blink(MOTION_LED_PIN, 10); // 10 seconds blinking
+      }
+
     }
   } else {
     digitalWrite(MOTION_LED_PIN, LOW);
+    if (pirState == HIGH) {
+      pirState = LOW;
+    }
+
   }
+  delay(100);
 }
 
 void connectToWiFi(const char * ssid, const char * pwd) {

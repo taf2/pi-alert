@@ -1,4 +1,8 @@
 // see: https://github.com/ArduCAM/ArduCAM_ESP8266_UNO/blob/master/libraries/ArduCAM/examples/ESP8266/ArduCAM_ESP8266_UNO_Capture/ArduCAM_ESP8266_UNO_Capture.ino
+//#define OV5642_CAM 1
+//#define OV5642_MINI_5MP 1
+//#define ESP8266 1
+
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266HTTPClient.h> 
@@ -8,10 +12,11 @@
 #include <ArduCAM.h>
 #include <SPI.h>
 #include "memorysaver.h"
+#include "ov5642_regs.h"
 //#include "stdlib_noniso.h"
 
 
-#define OV2640_MINI_2MP
+//#define OV5642_MINI_2MP
 
 const int CS = 16;
 const int RED_LED = 2;
@@ -19,11 +24,12 @@ const int RED_LED = 2;
 const char *ssid = "<%= @config[:ssid] %>"; // Put your SSID here
 const char *password = "<%= @config[:pass] %>"; // Put your PASSWORD here
 
-ArduCAM myCAM(OV2640, CS);
+ArduCAM myCAM(OV5642, CS);
 
 static const size_t bufferSize = 4096;
 static uint8_t buffer[bufferSize] = {0xFF};
 static char hexBuffer[1024];
+int motionCapture();
 
 int camCapture(ArduCAM myCAM) {
   WiFiClient client;
@@ -48,6 +54,7 @@ int camCapture(ArduCAM myCAM) {
     return -1;
   }
   Serial.println("doing the POST headers");
+  Serial.println(len);
   client.setNoDelay(true);
   client.println("POST /capture HTTP/1.1");
   Serial.println("POST /capture HTTP/1.1");
@@ -192,11 +199,30 @@ void setup() {
   SPI_setup();
   pinMode(RED_LED, OUTPUT); // red led
   digitalWrite(RED_LED, HIGH);
+  //Check if the camera module type is OV5642
+  uint8_t vid, pid;
+  myCAM.wrSensorReg16_8(0xff, 0x01);
+  myCAM.rdSensorReg16_8(OV5642_CHIPID_HIGH, &vid);
+  myCAM.rdSensorReg16_8(OV5642_CHIPID_LOW, &pid);
+  if((vid != 0x56) || (pid != 0x42)) {
+    Serial.println(F("Can't find OV5642 module!"));
+  } else {
+    Serial.println(F("OV5642 detected."));
+  }
   myCAM.set_format(JPEG);
   myCAM.InitCAM();
-  myCAM.OV2640_set_JPEG_size(OV2640_1024x768);
+  myCAM.OV5642_set_JPEG_size(OV5642_1024x768);
+  delay(1000);
+  myCAM.set_bit(ARDUCHIP_TIM, VSYNC_LEVEL_MASK);
+
+  myCAM.clear_fifo_flag();
+  myCAM.write_reg(ARDUCHIP_FRAMES,0x00);
 
   connectWifi();
+  if (!motionCapture()) {
+    Serial.println("event delivered waiting 1.5 seconds");
+    delay(15000);
+  }
 }
 
 int motionCapture() {

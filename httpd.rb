@@ -7,8 +7,28 @@ require 'curb'
 require 'json'
 require 'thread'
 require 'redis'
+require 'set'
+
+class NodeCapture
+  attr_accessor :seq, :node
+
+  def initialize(node)
+    @node = node
+    @captures = {}
+  end
+
+  def name
+    "#{@node}-#{@seq}"
+  end
+
+end
 
 RS = Redis.new(host:"192.168.2.50")
+
+
+# request grouping
+Nodes = {}
+
 
 JOBS = Queue.new
 JOB_WORKER = Thread.new do
@@ -48,7 +68,7 @@ def detection(image_file)
 end
 
 post '/event' do
-  JOBS << "event" # TODO: put the name of the device here so we know who to notify to activate
+  #JOBS << "event" # TODO: put the name of the device here so we know who to notify to activate
 end
 
 # event from a node can include image or video data
@@ -63,8 +83,18 @@ post '/capture' do
   epoch_time = Time.now.to_i
   filename = "./public/#{counter}.jpg"
 
-  puts "writing #{filename}"
+  puts "writing #{filename} @ #{Time.now}"
   File.open(filename, "wb") {|f| f << request.body.read }
+
+  puts request.env.inspect
+  # HTTP_X_NODE"=>"TinyPICO-Fountain", "HTTP_X_SEQ"=>"1
+  node = request.env['HTTP_X_NODE']
+  seq  = request.env['HTTP_X_SEQ']
+
+  capture = Nodes[node] || NodeCapture.new(node)
+  Nodes[node] = capture
+  capture.seq = seq
+
 
   #detection(filename)
   # instead of doing detection here we'll just relay to our detection worker process so we'll add this to redis stream

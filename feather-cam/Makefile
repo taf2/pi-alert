@@ -13,8 +13,9 @@ targets: srcfiles/main.cpp
 monitor:
 	pio device monitor
 
-#configure:
-#	pio lib install "arducam/ArduCAM"
+configure:
+	pio lib install "adafruit/Adafruit Motor Shield V2 Library"
+	pio lib install "adafruit/Adafruit PWM Servo Driver Library"
 
 clean:
 	pio run --target clean
