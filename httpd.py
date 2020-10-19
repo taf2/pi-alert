@@ -107,7 +107,9 @@ def detect(image_bytes, node, seq):
   #cv2.waitKey()
    
   #cv2.imwrite("object-detection.jpg", image)
-  cv2.imwrite( ("public/%s-%d.jpg" % (node, NODES[node])), image)
+  # only capture if one of these 'person','bicycle','car','motorcycle'
+  if 0 in class_ids or 1 in class_ids or 2 in class_ids or 3 in class_ids:
+    cv2.imwrite( ("public/%s-%d.jpg" % (node, NODES[node])), image)
   #cv2.destroyAllWindows()
   return class_ids
 
@@ -145,22 +147,22 @@ def capture():
   if len(class_ids) > 0:
     print("Interesting Motion")
 
-    if NODES_SEQ_TRIGGERED.get(node, 0) < seq: # assuming sequence is always incrementing from each node...
-      NODES_SEQ_TRIGGERED[node] = seq
-      print("Alert Motion")
-
-      # TODO: do face detection on the human frames and see if it's a human we know?
-      b2 = B2(key_id=B2_ID, application_key=B2_APP_KEY)
-      bucket = b2.buckets.get('monitors')
-
-      #image_file = open( ("public/%s-%d.jpg" % (node, NODES[node])), 'rb')
-      new_file = bucket.files.upload(contents=image_bytes, file_name='capture/motion.jpg')
-      print(new_file.url)
-
-      client = Client(ACCOUNT_SID, AUTH_TOKEN)
-      message = client.messages.create(to = '+14109806647',
-                                       from_= '+15014564510',
-                                       media_url=[new_file.url],
-                                       body =  "I detected a motion: %s" % new_file.url)
+#    if NODES_SEQ_TRIGGERED.get(node, 0) < seq: # assuming sequence is always incrementing from each node...
+#      NODES_SEQ_TRIGGERED[node] = seq
+#      print("Alert Motion")
+#
+#      # TODO: do face detection on the human frames and see if it's a human we know?
+#      b2 = B2(key_id=B2_ID, application_key=B2_APP_KEY)
+#      bucket = b2.buckets.get('monitors')
+#
+#      #image_file = open( ("public/%s-%d.jpg" % (node, NODES[node])), 'rb')
+#      new_file = bucket.files.upload(contents=image_bytes, file_name='capture/motion.jpg')
+#      print(new_file.url)
+#
+#      client = Client(ACCOUNT_SID, AUTH_TOKEN)
+#      message = client.messages.create(to = '+14109806647',
+#                                       from_= '+15014564510',
+#                                       media_url=[new_file.url],
+#                                       body =  "I detected a motion: %s" % new_file.url)
  
   return 'Hello, World!'

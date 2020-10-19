@@ -25,18 +25,19 @@ void setup() {
 
   pinMode(A0, OUTPUT);
   pinMode(A1, OUTPUT);
-  pinMode(A2, INPUT);
+  pinMode(21, INPUT);
 
 	AFMS.begin();  // create with the default frequency 1.6KHz
 
-	myMotor->setSpeed(30);  // 30 rpm
+	myMotor->setSpeed(30);  // 3 rpm
 
 
 }
 
 void loop() {
-  int motion = digitalRead(A2);
+  int motion = digitalRead(21);
   if (motion == HIGH) {
+		Serial.println("motion scan start");
     blink(A0, 1);
 		/*Serial.println("Single coil steps");
 		myMotor->step(100, FORWARD, SINGLE);
@@ -51,8 +52,19 @@ void loop() {
 		myMotor->step(100, BACKWARD, INTERLEAVE);
 
 		Serial.println("Microstep steps");*/
-		myMotor->step(50, FORWARD, MICROSTEP);
-		myMotor->step(50, BACKWARD, MICROSTEP);
+    for (int i = 0; i < 5; ++i) {
+      myMotor->step(5, FORWARD, MICROSTEP);
+      blink(A1, 1);
+      myMotor->step(5, FORWARD, MICROSTEP);
+      delay(500);
+    }
+    for (int i = 0; i < 5; ++i) {
+      myMotor->step(5, BACKWARD, MICROSTEP);
+      blink(A0, 1);
+      myMotor->step(5, BACKWARD, MICROSTEP);
+      delay(500);
+    }
     blink(A1, 1);
+		Serial.println("motion scan stop");
   }
 }

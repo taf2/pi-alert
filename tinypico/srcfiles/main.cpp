@@ -19,14 +19,16 @@ void printLine();
 void requestURL(const char * host, uint8_t port);
 void connectToWiFi(const char * ssid, const char * pwd);
 
-const int CS = 5;
+const int CS = 5; // camera CS pin
 
-const int MOTION_LED_PIN = 26;
-const int ON_LED_PIN = 27;
-const int MOTION_PIN = 4;
+const int MOTION_LED_PIN = 26; // output led to indicate we have detected motion
+const int ON_LED_PIN = 27; // output led to indicate we're running
+const int MOTION_PIN = 4; // input to tell us we have detected motion
+const int SIGNAL_MOTION_PIN = 33; // output to tell our servo controller to spin
+const int MOTION_ACTIVE_PIN = 32; // input to tell us the servo is moving
 
-const char *ssid = "<%= @config[:ssid] %>"; // Put your SSID here
-const char *pass = "<%= @config[:pass] %>"; // Put your PASSWORD here
+const char *ssid = "<%= @config[:ssid] %>";
+const char *pass = "<%= @config[:pass] %>";
 const char *node = "<%= @config[:events][:name] %>";
 
 uint8_t resolution = OV5642_640x480;//OV5642_2592x1944;
@@ -48,21 +50,23 @@ void SPI_setup() {
   Wire.begin();
 #endif
   Serial.begin(115200);
-  Serial.println(F("ArduCAM Start!"));
   // set the CS as an output:
   pinMode(CS, OUTPUT);
   // initialize SPI:
-  SPI.begin();
-  SPI.setFrequency(4000000); //4MHz
-  //Check if the ArduCAM SPI bus is OK
-  myCAM.write_reg(ARDUCHIP_TEST1, 0x55);
-  temp = myCAM.read_reg(ARDUCHIP_TEST1);
-  if (temp != 0x55) {
-    Serial.println(F("SPI1 interface Error!"));
-    while (1) {
+  do {
+    Serial.println(F("ArduCAM Start!"));
+    SPI.begin();
+    SPI.setFrequency(4000000); //4MHz
+    //Check if the ArduCAM SPI bus is OK
+    myCAM.write_reg(ARDUCHIP_TEST1, 0x55);
+    temp = myCAM.read_reg(ARDUCHIP_TEST1);
+    if (temp != 0x55) {
+      Serial.println(F("SPI1 interface Error!"));
       blink(ON_LED_PIN, 5);
+    } else {
+      break;
     }
-  }
+  } while(1);
 }
 
 int camCapture(ArduCAM myCAM, int sequence) {
@@ -229,6 +233,8 @@ void setup() {
   pinMode(MOTION_LED_PIN, OUTPUT);
   pinMode(ON_LED_PIN, OUTPUT);
   pinMode(MOTION_PIN, INPUT);
+  pinMode(SIGNAL_MOTION_PIN, OUTPUT);
+  pinMode(MOTION_ACTIVE_PIN, INPUT);
 
   blink(ON_LED_PIN, 5);
   blink(MOTION_LED_PIN, 5);
@@ -262,6 +268,7 @@ void loop() {
       pirState = HIGH; // just turned HIGH
 
       sequence++;
+      digitalWrite(SIGNAL_MOTION_PIN, HIGH); // tell the servo controller to start
 
       if (!motionCapture(sequence)) {
         yield();
@@ -284,6 +291,8 @@ void loop() {
 
         blink(MOTION_LED_PIN, 10); // 10 seconds blinking
       }
+
+      digitalWrite(SIGNAL_MOTION_PIN, LOW); // tell the servo controller to stop
 
     }
   } else {
