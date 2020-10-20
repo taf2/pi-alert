@@ -4,3 +4,4 @@ image1.jpg
 *.swp
 public/*.jpg
 .DS_Store
+.pio/*
