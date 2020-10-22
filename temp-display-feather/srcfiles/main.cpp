@@ -132,10 +132,12 @@ void displayBattery() {
 
   float measuredvbat = analogRead(VBATPIN);
   Serial.print("battery volt reading: "); Serial.println(measuredvbat);
-  measuredvbat /= 2;    // divid 2, so multiply back
+  // measuredvbat = (measuredvbat / 4095)*2*3.3*1.1;
+  measuredvbat /= 4095; // convert to voltage
+  measuredvbat *= 2;    // we get half voltage, so multiply back
   measuredvbat *= 3.3;  // Multiply by 3.3V, our reference voltage
-  measuredvbat /= 1024; // convert to voltage
-  // / 2 *  3.3 / 1024
+  measuredvbat *= 1.1;  // not sure... but this gives better on esp32 then perhaps other processor?
+
   Serial.print("VBat: " ); Serial.println(measuredvbat);
 
   display.setTextSize(1);
