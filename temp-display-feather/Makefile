@@ -20,6 +20,7 @@ configure:
 	pio lib install "adafruit/Adafruit SSD1306"
 	pio lib install "adafruit/Adafruit GFX Library"
 	pio lib install "arduino-libraries/NTPClient"
+	pio lib install "GxEPD2"
 
 clean:
 	pio run --target clean
