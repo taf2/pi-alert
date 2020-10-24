@@ -1,7 +1,12 @@
 // Basic demo for reading Humidity and Temperature
 // display on oled display
+#include <time.h>
 #include <SPI.h>
 #include <Wire.h>
+#include <WiFi.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+
 #include <Adafruit_MS8607.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_GFX.h>
@@ -36,11 +41,18 @@
   #define BUTTON_C  5
 #endif
 
+static char buf[80];
+static char buffer[1024];
+//static int mode = 0; // Button A
+static int degree = 1; // 0 is C 1 is F
+static int timezone = -14400;
+static const char *ssid = "<%= @config[:ssid] %>"; // Put your SSID here
+static const char *password = "<%= @config[:pass] %>"; // Put your PASSWORD here
+
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP);
 Adafruit_MS8607 ms8607;
 Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
-static char buffer[1024];
-static int mode = 0; // Button A
-static int degree = 0; // 0 is C 1 is F
 
 
 void displayln(const char *text) {
@@ -60,6 +72,25 @@ void setup(void) {
   // Clear the buffer.
   display.clearDisplay();
   display.display();
+
+  WiFi.begin(ssid, password);
+  snprintf(buffer, 1024, "Connecting to %s \\", ssid);
+  displayln(buffer);
+  int count = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+    char c = '/';
+    if (count % 2 == 0) {
+      c = '/';
+    } else {
+      c = '\\';
+    }
+    snprintf(buffer, 1024, "Connecting to %s %c", ssid, c);
+    display.clearDisplay();
+    displayln(buffer);
+  }
+
 
   pinMode(BUTTON_A, INPUT_PULLUP);
   pinMode(BUTTON_B, INPUT_PULLUP);
@@ -99,75 +130,97 @@ void setup(void) {
     case MS8607_PRESSURE_RESOLUTION_OSR_8192: Serial.println("8192"); break;
   }
   Serial.println("");
+
+  // initialize time
+  timeClient.begin();
+
+  // EST
+  //timeClient.setTimeOffset(-18000);
+  // EDT
+  timeClient.setTimeOffset(timezone);
 }
 
-// button A
-void displayWeather() {
-  sensors_event_t temp, pressure, humidity;
-  ms8607.getEvent(&pressure, &temp, &humidity);
+void displayTime() {
+  timeClient.update();
+  time_t rawtime = timeClient.getEpochTime();
+  struct tm  ts;
+  ts = *localtime(&rawtime);
+  strftime(buf, sizeof(buf), "  %I:%M %p\n", &ts);
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE);
+  display.print(buf);
+  display.setCursor(0,18);
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0,0);
-  float temperature = temp.temperature;
-
-  if (degree) {
-    // (26.15°C × 9/5) + 32 = 79.07°F
-    temperature = temperature * (9/5) + 32;
-  }
-
-  snprintf(buffer, 1024,
-           "Temperature: %.1f %s \nPressure: %.1f hPa\nHumidity: %.1f %%rH\n",
-           temperature, (degree ? "F" : "C"), pressure.pressure, humidity.relative_humidity);
-  display.clearDisplay();
-
-  display.print(buffer);
-
-  delay(10);
-  yield();
-  display.display();
+  strftime(buf, sizeof(buf), "%a %b, %d\n", &ts);
+  display.print(buf);
 }
 
-// button B
-void displayBattery() {
-
+float readBattery() {
   float measuredvbat = analogRead(VBATPIN);
-  Serial.print("battery volt reading: "); Serial.println(measuredvbat);
+  //Serial.print("battery volt reading: "); Serial.println(measuredvbat);
   // measuredvbat = (measuredvbat / 4095)*2*3.3*1.1;
   measuredvbat /= 4095; // convert to voltage
   measuredvbat *= 2;    // we get half voltage, so multiply back
   measuredvbat *= 3.3;  // Multiply by 3.3V, our reference voltage
   measuredvbat *= 1.1;  // not sure... but this gives better on esp32 then perhaps other processor?
+  return measuredvbat;
+}
 
-  Serial.print("VBat: " ); Serial.println(measuredvbat);
+void displayClock() {
+  sensors_event_t temp, pressure, humidity;
+  ms8607.getEvent(&pressure, &temp, &humidity);
+  float temperature = temp.temperature;
+  float battery = readBattery();
 
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0,0);
-  snprintf(buffer, 1024, "VBat: %.1f", measuredvbat);
+  if (degree) {
+    // (26.15°C × 9/5) + 32 = 79.07°F
+    temperature = (temperature * 1.8) + 32.0;
+  }
   display.clearDisplay();
+  display.setCursor(0,0);
+  display.setTextColor(SSD1306_WHITE);
+  displayTime();
+
+  snprintf(buffer, 1024,
+           "%.0f%s, %.0f %%rH, %.1fV\n",
+           temperature, (degree ? "F" : "C"), humidity.relative_humidity, battery);
+  display.setTextSize(1);
 
   display.print(buffer);
 
-  delay(10);
   yield();
+
   display.display();
 }
 
-void loop() {
-  if (!digitalRead(BUTTON_A)) { Serial.println("A"); mode = 0; }
-  if (!digitalRead(BUTTON_B)) { Serial.println("B"); mode = 1; }
-  if (!digitalRead(BUTTON_C)) { Serial.println("C"); degree = (degree ? 0 : 1); }
 
-  switch (mode) {
-  case 0:
-    displayWeather();
-    break;
-  case 1:
-    displayBattery();
-    break;
-  case 2:
-    break;
+void loop() {
+  int button = 0;
+  if (!digitalRead(BUTTON_A)) {
+    Serial.println("Adjust timezone down by 30 minutes");
+    timezone -= 1800;
+    timeClient.setTimeOffset(timezone);
+    button = 1;
   }
-  //delay(500);
+
+  if (!digitalRead(BUTTON_B)) {
+    Serial.println("Adjust timezone up by 30 minutes");
+    timezone += 1800;
+    timeClient.setTimeOffset(timezone);
+    button = 1;
+  }
+
+  if (!digitalRead(BUTTON_C)) {
+    Serial.println("Modify celsius to fahrenheit");
+    degree = (degree ? 0 : 1);
+    button = 1;
+  }
+
+  displayClock();
+
+  if (button) {
+    delay(500);
+  }
 
 }
