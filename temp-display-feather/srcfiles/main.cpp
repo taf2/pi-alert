@@ -70,6 +70,9 @@
   #define BUTTON_C  5
 #endif
 
+static time_t lastSecond    = 0;
+static float lastTemp    = 0;
+
 static char buf[80];
 static char buffer[1024];
 //static int mode = 0; // Button A
@@ -340,20 +343,35 @@ void setup(void) {
   //delay(1000);
 }
 
-void displayTime() {
-  timeClient.update();
+int displayTime(short needUpdate) {
+  
   time_t rawtime = timeClient.getEpochTime();
-  struct tm  ts;
-  ts = *localtime(&rawtime);
-  strftime(buf, sizeof(buf), "  %I:%M %p\n", &ts);
-  display.setTextSize(2);
-  display.setTextColor(SSD1306_WHITE);
-  display.print(buf);
-  display.setCursor(0,18);
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  strftime(buf, sizeof(buf), "%a %b, %d\n", &ts);
-  display.print(buf);
+  int rawMinute = (int)(rawtime/60);
+  int lastMinute = (int)(lastSecond/60);
+  if (needUpdate ||  rawMinute > lastMinute) {
+    snprintf(buffer, 1024,
+             "rawtime: %ld, lastSecond: %ld, rm: %d lm: %d\n", rawtime, lastSecond, rawMinute, lastMinute);
+    Serial.print(buffer);
+    timeClient.update(); // only update client every 60 seconds avoids extra network ?
+    struct tm  ts;
+    ts = *localtime(&rawtime);
+    lastSecond = rawtime;
+    strftime(buf, sizeof(buf), "  %I:%M %p\n", &ts);
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    display.print(buf);
+    display.setCursor(0,18);
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    strftime(buf, sizeof(buf), "%a %b, %d\n", &ts);
+    display.print(buf);
+    return 1;
+  } else {
+    struct tm  ts;
+    ts = *localtime(&rawtime);
+    lastSecond = rawtime;
+  }
+  return 0;
 }
 
 float readBattery() {
@@ -372,6 +390,9 @@ void displayClock() {
   ms8607.getEvent(&pressure, &temp, &humidity);
   float temperature = temp.temperature;
   float battery = readBattery();
+  short needUpdate = roundf(lastTemp) != roundf(temperature);
+
+  lastTemp = temperature; // so we can track changes in the battey signal
 
   if (degree) {
     // (26.15°C × 9/5) + 32 = 79.07°F
@@ -380,18 +401,19 @@ void displayClock() {
   display.clearDisplay();
   display.setCursor(0,0);
   display.setTextColor(SSD1306_WHITE);
-  displayTime();
+  needUpdate = displayTime(needUpdate);
+  if (needUpdate) {
+    snprintf(buffer, 1024,
+             "%.0f%s, %.0f %%rH, %.1fV\n",
+             temperature, (degree ? "F" : "C"), humidity.relative_humidity, battery);
+    display.setTextSize(1);
 
-  snprintf(buffer, 1024,
-           "%.0f%s, %.0f %%rH, %.1fV\n",
-           temperature, (degree ? "F" : "C"), humidity.relative_humidity, battery);
-  display.setTextSize(1);
+    display.print(buffer);
 
-  display.print(buffer);
+    yield();
 
-  yield();
-
-  display.display();
+    display.display();
+  }
 }
 
 void adjustTimezone() {
@@ -418,39 +440,56 @@ void adjustTimezone() {
 }
 
 void loop() {
-  int button = 0;
+  short button_delay = 0;
+  short button_a_pressed = 0;
+  short button_b_pressed = 0;
+  short button_c_pressed = 0;
+
   if (!digitalRead(BUTTON_A)) {
+    button_a_pressed  = 1;
+  }
+
+  if (!digitalRead(BUTTON_B)) {
+    button_b_pressed = 1;
+  }
+
+  if (!digitalRead(BUTTON_C)) {
+    button_c_pressed = 1;
+  }
+
+  if (button_a_pressed) {
     Serial.println("Select prev timezone");
 		--timezoneIndex;
 		if (timezoneIndex < 0) {
 			timezoneIndex = (sizeof(ZONES)/sizeof(int)) - 1;
 		}
     adjustTimezone();
-    button = 1;
+    button_delay = 1;
   }
 
-  if (!digitalRead(BUTTON_B)) {
+  if (button_b_pressed) {
     Serial.println("Select next timezone");
 		++timezoneIndex;
 		if (timezoneIndex >= (sizeof(ZONES)/sizeof(int))) {
 			timezoneIndex = 0;
 		}
     adjustTimezone();
-    button = 1;
+    button_delay = 1;
   }
 
-  if (!digitalRead(BUTTON_C)) {
+
+  if (button_c_pressed) {
     Serial.println("Modify celsius to fahrenheit");
     degree = (degree ? 0 : 1);
 		EEPROM.write(1, degree);
 		EEPROM.write(2, 1);
 		EEPROM.commit();
-    button = 1;
+    button_delay = 1;
   }
 
   displayClock();
 
-  if (button) {
+  if (button_delay) {
     delay(500);
   }
 
