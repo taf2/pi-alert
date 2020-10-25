@@ -7,7 +7,7 @@
 	the oled display will continue to be attached and we'll have a night option since clocks suck at night they're too bright
 	we'll have the primary display be an epaper 5.65 " display with epaper, we'll dialy update the quote to inspire everyone
 	*/
-//#define ENABLE_EPAPER
+#define ENABLE_EPAPER 1
 #include <time.h>
 #include <SPI.h>
 #include <Wire.h>
@@ -17,16 +17,18 @@
 #include <EEPROM.h> /* to save the selected time offset button A adds 30 minutes, button B removes 30 minutes */
 #define EEPROM_SIZE 3
 
-// so we can write to epaper
-#ifdef ENABLE_EPAPER
-#include <GxEPD2_BW.h>  // Include GxEPD2 library for black and white displays
-#include <GxEPD2_3C.h>  // Include GxEPD2 library for 3 color displays
-#endif
-
 #include <Adafruit_MS8607.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+
+// so we can write to epaper
+#ifdef ENABLE_EPAPER
+#undef ENABLE_GxEPD2_GFX // ensure we use adafruit
+#include <GxEPD2_BW.h>  // Include GxEPD2 library for black and white displays
+#include <GxEPD2_3C.h>  // Include GxEPD2 library for 3 color displays
+#endif
+
 
 // Include fonts from Adafruit_GFX
 #include <Fonts/FreeMono9pt7b.h>
@@ -41,10 +43,11 @@
 #define VBATPIN A13
 
 // ePaper pins in addition to MOSI (DIN) and SCK (CLK)
-#define CS_PIN          A5
-#define DC_PIN          A4
-#define RST_PIN         A3
-#define BUSY_PIN        A2
+// we can't use A3 or A4 since they have to be output capable and are not on the feather esp32
+#define CS_PIN          A5 // must be output capable
+#define DC_PIN          A1 // must be output capable
+#define RST_PIN         A0 // must be output capable and is an INPUT_PULLUP
+#define BUSY_PIN        A2 // must be input capable
 
 // OLED FeatherWing buttons map to different pins depending on board:
 #if defined(ESP8266)
