@@ -28,9 +28,9 @@
 #ifndef EPDIF_H
 #define EPDIF_H
 // Pin definition
-#define RST_PIN         A3
-#define DC_PIN          A4
 #define CS_PIN          A5
+#define DC_PIN          A4
+#define RST_PIN         A3
 #define BUSY_PIN        A2
 
 
