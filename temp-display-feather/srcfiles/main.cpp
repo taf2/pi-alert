@@ -7,6 +7,7 @@
 	the oled display will continue to be attached and we'll have a night option since clocks suck at night they're too bright
 	we'll have the primary display be an epaper 5.65 " display with epaper, we'll dialy update the quote to inspire everyone
 	*/
+//#define ENABLE_EPAPER
 #include <time.h>
 #include <SPI.h>
 #include <Wire.h>
@@ -17,8 +18,10 @@
 #define EEPROM_SIZE 3
 
 // so we can write to epaper
+#ifdef ENABLE_EPAPER
 #include <GxEPD2_BW.h>  // Include GxEPD2 library for black and white displays
 #include <GxEPD2_3C.h>  // Include GxEPD2 library for 3 color displays
+#endif
 
 #include <Adafruit_MS8607.h>
 #include <Adafruit_Sensor.h>
@@ -38,10 +41,10 @@
 #define VBATPIN A13
 
 // ePaper pins in addition to MOSI (DIN) and SCK (CLK)
-#define CS_PIN          4
-#define DC_PIN          36
-#define RST_PIN         39
-#define BUSY_PIN        34
+#define CS_PIN          A5
+#define DC_PIN          A4
+#define RST_PIN         A3
+#define BUSY_PIN        A2
 
 // OLED FeatherWing buttons map to different pins depending on board:
 #if defined(ESP8266)
@@ -118,44 +121,48 @@ static const int ZONES[][2] = {{14,0}, // UTC +14	Samoa and Christmas Island/Kir
 												 {-11,-0}, // UTC -11	American Samoa and 2 more	NUT	Alofi
 												 {-12,-0}  // UTC -12	much of US Minor Outlying Islands	AoE	Baker Island
 };
+//
+// NOTE: maybe we can use curl "http://worldtimeapi.org/api/ip/:ipv4:.txt" to determine dst vs not?
+// or at least on first boot as away to guess timezone
+//
 static const char *ZONE_NAMES[] = {"UTC +14	Samoa and Christmas Island/Kiribati	LINT	Kiritimati",
-                             "UTC +13:45	Chatham Islands/New Zealand	CHADT	Chatham Islands",
-                             "UTC +13	New Zealand with exceptions and 4 more	NZDT	Auckland",
-                             "UTC +12	Fiji, small region of Russia and 7 more	ANAT	Anadyr",
-                             "UTC +11	much of Australia and 7 more	AEDT	Melbourne",
-                             "UTC +10:30	small region of Australia	ACDT	Adelaide",
-                             "UTC +10	Queensland/Australia and 6 more	AEST	Brisbane",
-                             "UTC +9:30	Northern Territory/Australia	ACST	Darwin",
-                             "UTC +9	Japan, South Korea and 5 more	JST	Tokyo",
-                             "UTC +8:45	Western Australia/Australia	ACWST	Eucla",
-                             "UTC +8	China, Philippines and 10 more	CST	Beijing",
-                             "UTC +7	much of Indonesia, Thailand and 7 more	WIB	Jakarta",
-                             "UTC +6:30	Myanmar and Cocos Islands	MMT	Yangon",
-                             "UTC +6	Bangladesh and 6 more	BST	Dhaka",
-                             "UTC +5:45	Nepal	NPT	Kathmandu",
-                             "UTC +5:30	India and Sri Lanka	IST	New Delhi",
-                             "UTC +5	Pakistan and 8 more	UZT	Tashkent",
-                             "UTC +4:30	Afghanistan	AFT	Kabul",
-                             "UTC +4	Azerbaijan and 8 more	GST	Dubai",
-                             "UTC +3:30	Iran	IRST	Tehran",
-                             "UTC +3	Greece and 36 more	MSK	Moscow",
-                             "UTC +2	Germany and 48 more	CEST	Brussels",
-                             "UTC +1	United Kingdom and 22 more	BST	London",
-                             "UTC +0	Iceland and 17 more	GMT	Accra",
-                             "UTC -1	Cabo Verde	CVT	Praia",
-                             "UTC -2	most of Greenland and 3 more	WGST	Nuuk",
-                             "UTC -2:30	Newfoundland and Labrador/Canada	NDT	St. John's",
-                             "UTC -3	most of Brazil, Argentina and 10 more	ART	Buenos Aires",
-                             "UTC -4	regions of USA and 31 more	EDT	New York",
-                             "UTC -5	regions of USA and 10 more	CDT	Mexico City",
-                             "UTC -6	small region of USA and 9 more	CST	Guatemala City",
-                             "UTC -7	regions of USA and 2 more	PDT	Los Angeles",
-                             "UTC -8	Alaska/USA and 2 more	AKDT	Anchorage",
-                             "UTC -9	Alaska/USA and regions of French Polynesia	HDT	Adak",
-                             "UTC -9:30	Marquesas Islands/French Polynesia	MART	Taiohae",
-                             "UTC -10	Hawaii/USA and 2 more	HST	Honolulu",
-                             "UTC -11	American Samoa and 2 more	NUT	Alofi",
-                             "UTC -12	much of US Minor Outlying Islands	AoE	Baker Island"
+                                   "UTC +13:45	Chatham Islands/New Zealand	CHADT	Chatham Islands",
+                                   "UTC +13	New Zealand with exceptions and 4 more	NZDT	Auckland",
+                                   "UTC +12	Fiji, small region of Russia and 7 more	ANAT	Anadyr",
+                                   "UTC +11	much of Australia and 7 more	AEDT	Melbourne",
+                                   "UTC +10:30	small region of Australia	ACDT	Adelaide",
+                                   "UTC +10	Queensland/Australia and 6 more	AEST	Brisbane",
+                                   "UTC +9:30	Northern Territory/Australia	ACST	Darwin",
+                                   "UTC +9	Japan, South Korea and 5 more	JST	Tokyo",
+                                   "UTC +8:45	Western Australia/Australia	ACWST	Eucla",
+                                   "UTC +8	China, Philippines and 10 more	CST	Beijing",
+                                   "UTC +7	much of Indonesia, Thailand and 7 more	WIB	Jakarta",
+                                   "UTC +6:30	Myanmar and Cocos Islands	MMT	Yangon",
+                                   "UTC +6	Bangladesh and 6 more	BST	Dhaka",
+                                   "UTC +5:45	Nepal	NPT	Kathmandu",
+                                   "UTC +5:30	India and Sri Lanka	IST	New Delhi",
+                                   "UTC +5	Pakistan and 8 more	UZT	Tashkent",
+                                   "UTC +4:30	Afghanistan	AFT	Kabul",
+                                   "UTC +4	Azerbaijan and 8 more	GST	Dubai",
+                                   "UTC +3:30	Iran	IRST	Tehran",
+                                   "UTC +3	Greece and 36 more	MSK	Moscow",
+                                   "UTC +2	Germany and 48 more	CEST	Brussels",
+                                   "UTC +1	United Kingdom and 22 more	BST	London",
+                                   "UTC +0	Iceland and 17 more	GMT	Accra",
+                                   "UTC -1	Cabo Verde	CVT	Praia",
+                                   "UTC -2	most of Greenland and 3 more	WGST	Nuuk",
+                                   "UTC -2:30	Newfoundland and Labrador/Canada	NDT	St. John's",
+                                   "UTC -3	most of Brazil, Argentina and 10 more	ART	Buenos Aires",
+                                   "UTC -4	regions of USA and 31 more	EDT	New York",
+                                   "UTC -5	regions of USA and 10 more	CDT	Mexico City",
+                                   "UTC -6	small region of USA and 9 more	CST	Guatemala City",
+                                   "UTC -7	regions of USA and 2 more	PDT	Los Angeles",
+                                   "UTC -8	Alaska/USA and 2 more	AKDT	Anchorage",
+                                   "UTC -9	Alaska/USA and regions of French Polynesia	HDT	Adak",
+                                   "UTC -9:30	Marquesas Islands/French Polynesia	MART	Taiohae",
+                                   "UTC -10	Hawaii/USA and 2 more	HST	Honolulu",
+                                   "UTC -11	American Samoa and 2 more	NUT	Alofi",
+                                   "UTC -12	much of US Minor Outlying Islands	AoE	Baker Island"
 };
 int timezoneOffset() {
   int hours = ZONES[timezoneIndex][0];
@@ -179,7 +186,9 @@ WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP);
 Adafruit_MS8607 ms8607;
 Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
+#ifdef ENABLE_EPAPER
 GxEPD2_3C<GxEPD2_565c, GxEPD2_565c::HEIGHT> ePaperDisplay(GxEPD2_565c(CS_PIN, DC_PIN, RST_PIN, BUSY_PIN));
+#endif
 
 void displayln(const char *text) {
   display.println(text);
@@ -196,10 +205,12 @@ void setup(void) {
 
 
 	// now init the ePaper
-//	ePaperDisplay.init(115200);  // Initiate the display
-//  ePaperDisplay.setRotation(0);  // Set orientation. Goes from 0, 1, 2 or 3
-//  ePaperDisplay.setCursor(0,0);
+#ifdef ENABLE_EPAPER
+	ePaperDisplay.init(115200);  // Initiate the display
+  ePaperDisplay.setRotation(0);  // Set orientation. Goes from 0, 1, 2 or 3
+  ePaperDisplay.setCursor(0,0);
 	Serial.println("Initialized epaper");
+#endif
 
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // Address 0x3C for 128x32
 
@@ -213,6 +224,7 @@ void setup(void) {
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(0,0);
+  IPAddress ip;
 
 
   WiFi.begin(ssid, password);
@@ -232,7 +244,12 @@ void setup(void) {
     display.clearDisplay();
     displayln(buffer);
   }
-
+  ip = WiFi.localIP();
+  Serial.println(ip);
+  snprintf(buffer, 1024, "Connected to %s with %s\n", ssid, ip.toString().c_str());
+  display.clearDisplay();
+  displayln(buffer);
+  delay(2000);
 
   pinMode(BUTTON_A, INPUT_PULLUP);
   pinMode(BUTTON_B, INPUT_PULLUP);
@@ -242,8 +259,7 @@ void setup(void) {
 
   // Try to initialize!
   if (!ms8607.begin()) {
-    Serial.println("Failed to find MS8607 chip");
-    while (1) { delay(10); }
+    while (1) {Serial.println("Failed to find MS8607 chip"); delay(10); }
   }
   Serial.println("MS8607 Found!");
 
@@ -292,13 +308,17 @@ void setup(void) {
 	Serial.println(offsetSeconds);
 	timeClient.setTimeOffset(offsetSeconds);
  
-  //ePaperDisplay.setTextWrap(false);  // By default, long lines of text are set to automatically “wrap” back to the leftmost column.
-//  ePaperDisplay.setFullWindow();  // Set full window mode, meaning is going to update the entire screen
+#ifdef ENABLE_EPAPER
+  ePaperDisplay.setTextWrap(false);  // By default, long lines of text are set to automatically “wrap” back to the leftmost column.
+  ePaperDisplay.setFullWindow();  // Set full window mode, meaning is going to update the entire screen
 
-//  ePaperDisplay.fillScreen(GxEPD_WHITE);  // Clear previous graphics to start over to print new things.
-//  Serial.print("blank out the screen\r\n ");
-//  ePaperDisplay.display();
-//  delay(2000);
+  ePaperDisplay.fillScreen(GxEPD_WHITE);  // Clear previous graphics to start over to print new things.
+  Serial.print("blank out the screen\r\n ");
+  ePaperDisplay.display();
+  Serial.print("display finished\r\n ");
+  delay(2000);
+  Serial.print("done init\r\n ");
+#endif
   
   // Print text - "Hello World!":
 //  ePaperDisplay.setTextColor(GxEPD_BLACK);  // Set color for text
@@ -487,7 +507,18 @@ void loop() {
     button_delay = 1;
   }
 
-  displayClock();
+  if (button_a_pressed && button_b_pressed) {
+    display.clearDisplay();
+    displayln("Factory Reset...");
+    timezoneIndex = 28; // EDT
+    degree = 1;
+		EEPROM.write(0, timezoneIndex);
+		EEPROM.write(1, degree);
+		EEPROM.write(2, 0);
+    delay(5000);
+  } else {
+    displayClock();
+  }
 
   if (button_delay) {
     delay(500);
