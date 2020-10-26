@@ -7,7 +7,7 @@
 	the oled display will continue to be attached and we'll have a night option since clocks suck at night they're too bright
 	we'll have the primary display be an epaper 5.65 " display with epaper, we'll dialy update the quote to inspire everyone
 	*/
-//#define ENABLE_EPAPER 1
+#define ENABLE_EPAPER 1
 #include <time.h>
 #include <SPI.h>
 #include <Wire.h>
@@ -15,6 +15,7 @@
 #include <HTTPClient.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
+
 //#include <SPIFFS.h> // cache quote of the day so we only re-fetch 1 time per day
 
 #include <Adafruit_MS8607.h>
@@ -292,6 +293,14 @@ int displayTime(short needUpdate) {
       ePaperDisplay.setFont(&FreeMono24pt7b);  // Set font
       ePaperDisplay.println(buf);  // print the date
       yield();
+      // print a quote if we have one
+      if (strlen(settings.quote) > 0) {
+        ePaperDisplay.setCursor(0, 340);  // Set the position to start printing text (x,y)
+        ePaperDisplay.setFont(&FreeMono12pt7b);  // Set font
+        ePaperDisplay.println(settings.quote);  // print the quote
+        ePaperDisplay.print("by: ");  // print the author
+        ePaperDisplay.println(settings.author);  // print the author
+      }
 #endif
       return 2;
     }
@@ -394,7 +403,8 @@ void loop() {
       Serial.println("Modify celsius to fahrenheit");
       settings.fahrenheit = true;
     }
-    settings.save();
+    //settings.save();
+    settings.fetchQuote(timeClient);
     button_delay = 1;
   }
 

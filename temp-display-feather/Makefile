@@ -22,6 +22,8 @@ configure:
 	pio lib install "arduino-libraries/NTPClient"
 	pio lib install "GxEPD2"
 	pio lib install "bblanchon/ArduinoJson"
+	pio lib install "nkolban/ESP32 BLE Arduino"
+
 
 clean:
 	pio run --target clean

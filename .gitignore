@@ -9,3 +9,4 @@ itsybitsy/.pio/*
 detector/.pio/*
 epaper7color/.pio/*
 trinketm0_on_when_light/.pio/*
+temp-display-feather/src/main.cpp

@@ -84,6 +84,10 @@ static const char *ZONE_NAMES[] = {"UTC +14	Samoa and Christmas Island/Kiribati	
 };
 
 
+EEPROMSettings::EEPROMSettings() {
+  memset(quote, 0, 128);
+  memset(author, 0, 32);
+}
 //static int mode = 0; // Button A
 int EEPROMSettings::timezoneOffset() {
   int hours = ZONES[timezoneIndex][0];
@@ -127,10 +131,14 @@ void EEPROMSettings::fetchQuote(NTPClient &timeClient) {
   for (JsonVariant value : quotes) {
     //Serial.println(value.as<char*>());
     JsonObject quoteObj = value.as<JsonObject>();
-    const char *_quote = quoteObj["quote"].as<String>().c_str();
     const char *_author = quoteObj["author"].as<String>().c_str();
-    strncpy(this->quote, _quote, 127);
-    strncpy(this->author, _author, 31);
+    if (strlen(_author) > 1) {
+      strncpy(this->author, _author, 31);
+    }
+    const char *_quote = quoteObj["quote"].as<String>().c_str();
+    if (strlen(_quote) > 1) {
+      strncpy(this->quote, _quote, 127);
+    }
     didFetchSuccess = true;
     break; // break since we just need the first one
   }

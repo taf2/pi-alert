@@ -28,6 +28,7 @@
 # THE SOFTWARE.
 #
 ******************************************************************************/
+#if 0
 
 #include <stdlib.h>
 #include "epd5in65f.h"
@@ -264,6 +265,7 @@ void Epd::Sleep(void) {
 	DigitalWrite(RST_PIN, 0); // Reset
 }
 
+#endif
 
 
 /* END OF FILE */

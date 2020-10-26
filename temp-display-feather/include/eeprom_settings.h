@@ -11,6 +11,8 @@
 #include "writeAnything.h"
 
 struct EEPROMSettings {
+  EEPROMSettings();
+
   int timezoneOffset();
   void loadQuote(NTPClient &timeClient);
   void fetchQuote(NTPClient &timeClient);
