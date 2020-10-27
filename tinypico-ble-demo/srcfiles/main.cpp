@@ -1,35 +1,20 @@
 #include <TinyPICO.h>
 /*
-    Video: https://www.youtube.com/watch?v=oCMOYS71NIU
-    Based on Neil Kolban example for IDF: https://github.com/nkolban/esp32-snippets/blob/master/cpp_utils/tests/BLE%20Tests/SampleNotify.cpp
-    Ported to Arduino ESP32 by Evandro Copercini
-
-   Create a BLE server that, once we receive a connection, will send periodic notifications.
-   The service advertises itself as: 6E400001-B5A3-F393-E0A9-E50E24DCCA9E
-   Has a characteristic of: 6E400002-B5A3-F393-E0A9-E50E24DCCA9E - used for receiving data with "WRITE"
-   Has a characteristic of: 6E400003-B5A3-F393-E0A9-E50E24DCCA9E - used to send data with  "NOTIFY"
-
-   The design of creating the BLE server is:
-   1. Create a BLE Server
-   2. Create a BLE Service
-   3. Create a BLE Characteristic on the Service
-   4. Create a BLE Descriptor on the characteristic
-   5. Start the service.
-   6. Start advertising.
-
-   In this example rxValue is the data received (only accessible inside that function).
-   And txValue is the data to be sent, in this example just a byte incremented every second.
+   The goal of this is to get wifi ssid and password via bluetooth and then start up the bluetooth.
+   we'll use eeprom to save the wifi password and ssid so reboots don't need to be configured again.
 */
+#include <WiFi.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
 
+#include "eeprom_settings.h"
+
 #define LED_CONFIGURED 25
 #define LED_BLUE_CONFIG 26
 #define ENABLE_CONFIG 33
 
-BLECharacteristic *pCharacteristic;
 bool deviceConnected = false;
 float txValue = 0;
 bool ConfigMode = false; //  when pressed we'll enter configuration mode
@@ -38,11 +23,11 @@ bool ConfigMode = false; //  when pressed we'll enter configuration mode
 TinyPICO tp = TinyPICO();
 BLEService *pService;
 BLEServer *pServer;
-std::string rxValue; // Could also make this a global var to access it in loop()
+BLECharacteristic *pCharacteristic;
+EEPROMSettings settings;
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
-
 #define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E" // UART service UUID
 #define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
 #define CHARACTERISTIC_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
@@ -50,45 +35,102 @@ std::string rxValue; // Could also make this a global var to access it in loop()
 void disableBLE();
 
 class MyServerCallbacks: public BLEServerCallbacks {
-    void onConnect(BLEServer* pServer) {
-      deviceConnected = true;
-    };
+  void onConnect(BLEServer* pServer) {
+    deviceConnected = true;
+  };
 
-    void onDisconnect(BLEServer* pServer) {
-      deviceConnected = false;
-    }
+  void onDisconnect(BLEServer* pServer) {
+    deviceConnected = false;
+  }
 };
 
 class MyCallbacks: public BLECharacteristicCallbacks {
-    void onWrite(BLECharacteristic *pCharacteristic) {
-      rxValue = pCharacteristic->getValue();
+  void onWrite(BLECharacteristic *pCharacteristic) {
+    std::string rxValue = pCharacteristic->getValue();
 
-      if (rxValue.length() > 0) {
-        Serial.println("*********");
-        Serial.print("Received Value: ");
+    if (rxValue.length() > 0) {
+      Serial.println("*********");
+      Serial.print("Received Value: ");
+      // expecting key:value pairs
+      String key, value;
+      bool isKey = true;
 
-        for (int i = 0; i < rxValue.length(); i++) {
-          Serial.print(rxValue[i]);
+      for (int i = 0; i < rxValue.length(); i++) {
+        Serial.print(rxValue[i]);
+        if (rxValue[i] == ':') {
+          isKey = false;
+        } else {
+          if (isKey) {
+            key +=  rxValue[i];
+          } else {
+            value += rxValue[i];
+          }
         }
-
-        Serial.println();
-
-        // Do stuff based on the command received from the app
-        if (rxValue == "A" || rxValue == "B") {
-          Serial.println("Received config use it now to connect ot wifi");
-          //digitalWrite(LED, HIGH);
-          digitalWrite(LED_BLUE_CONFIG, LOW);
-          digitalWrite(LED_CONFIGURED, HIGH);
-          disableBLE();
-        }
-
-        Serial.println();
-        Serial.println("*********");
       }
+
+      Serial.println();
+      if (key.length() > 0 && key == "ssid" && value.length() > 0) {
+        Serial.println( ("Connect to WiFi with: " + key + " and " + value).c_str() );
+        memcpy(settings.ssid, value.c_str(), 32);
+        settings.configured = true; 
+        settings.save();
+      } else if (key.length() > 0 && key == "pass" && value.length() > 0) {
+        Serial.println( ("Connect to WiFi with: " + key + " and " + value).c_str() );
+        memcpy(settings.pass, value.c_str(), 32);
+        settings.configured = true; 
+        settings.save();
+      }
+
+
+      // Do stuff based on the command received from the app
+      /*if (rxValue == "A" || rxValue == "B") {
+        Serial.println("Received config use it now to connect ot wifi");
+        //digitalWrite(LED, HIGH);
+        digitalWrite(LED_BLUE_CONFIG, LOW);
+        digitalWrite(LED_CONFIGURED, HIGH);
+        disableBLE();
+      }*/
+
+      Serial.println();
+      Serial.println("*********");
     }
+  }
 };
 
 MyServerCallbacks *callbacks = NULL;
+
+void initWiFi(const char *ssid, const char *password) {
+  // text display tests
+  IPAddress ip;
+
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to");
+  Serial.println(ssid);
+  int count = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    char c = '/';
+    if (count % 2 == 0) {
+      c = '/';
+    } else {
+      c = '\\';
+    }
+    Serial.print(c);
+    Serial.print("Connecting to");
+    Serial.print(ssid);
+    Serial.print(c);
+    yield();
+    ++count;
+  }
+  ip = WiFi.localIP();
+  Serial.println(ip);
+  Serial.print("Connected to ");
+  Serial.print(ssid);
+  Serial.print(" with ");
+  Serial.print(ip.toString().c_str());
+
+  delay(2000);
+}
 
 void setup() {
   Serial.begin(115200);
@@ -96,43 +138,61 @@ void setup() {
   pinMode(LED_BLUE_CONFIG, OUTPUT);
   pinMode(ENABLE_CONFIG, INPUT);
 
+	EEPROM.begin(EEPROM_SIZE);
+
   tp.DotStar_SetPower( false );
+
+  settings.load();
+
+  if (settings.configured && strlen(settings.ssid) > 2 && strlen(settings.pass) > 2 && isalnum(settings.ssid[0])) {
+    Serial.println("wifi is configured");
+    Serial.println(settings.ssid);
+    Serial.println(settings.pass);
+    initWiFi(settings.ssid, settings.pass);
+  }
 }
 
 void enableBLE() {
   // Create the BLE Device
   Serial.println("enableBLE");
-  BLEDevice::init("Clock"); // Give it a name
-  Serial.println("init completed");
+  if (!BLEDevice::getInitialized()) {
+    Serial.println("init start");
+    BLEDevice::init("Clock"); // Give it a name
+    Serial.println("init complete");
 
-  // Create the BLE Server
-  pServer = BLEDevice::createServer();
-  Serial.println("server created");
-  callbacks = new MyServerCallbacks();
-  pServer->setCallbacks(callbacks);
-  Serial.println("created pServer");
+    // Create the BLE Server
+    pServer = BLEDevice::createServer();
+    Serial.println("server created");
+    callbacks = new MyServerCallbacks();
+    pServer->setCallbacks(callbacks);
+    Serial.println("created pServer");
 
-  // Create the BLE Service
-  pService = pServer->createService(SERVICE_UUID);
-  Serial.println("created pService");
+    // Create the BLE Service
+    pService = pServer->createService(SERVICE_UUID);
+    Serial.println("created pService");
 
-  // Create a BLE Characteristic
-  pCharacteristic = pService->createCharacteristic(
-                      CHARACTERISTIC_UUID_TX,
-                      BLECharacteristic::PROPERTY_NOTIFY
-                    );
+    // Create a BLE Characteristic
+    pCharacteristic = pService->createCharacteristic(
+                        CHARACTERISTIC_UUID_TX,
+                        BLECharacteristic::PROPERTY_NOTIFY
+                      );
 
-  pCharacteristic->addDescriptor(new BLE2902());
+    pCharacteristic->addDescriptor(new BLE2902());
 
-  BLECharacteristic *pCharacteristic = pService->createCharacteristic(
-                                         CHARACTERISTIC_UUID_RX,
-                                         BLECharacteristic::PROPERTY_WRITE
-                                       );
+    BLECharacteristic *pCharacteristic = pService->createCharacteristic(
+                                           CHARACTERISTIC_UUID_RX,
+                                           BLECharacteristic::PROPERTY_WRITE
+                                         );
 
-  pCharacteristic->setCallbacks(new MyCallbacks());
+    pCharacteristic->setCallbacks(new MyCallbacks());
 
-  // Start the service
-  pService->start();
+    Serial.println("start server");
+
+    // Start the service
+    pService->start();
+  }
+
+  Serial.println("start advertising");
 
   // Start advertising
   pServer->getAdvertising()->start();
@@ -144,9 +204,10 @@ void enableBLE() {
 void disableBLE() {
   ConfigMode = false;
   if (pServer) {
+    Serial.println("stop ble server");
     pServer->getAdvertising()->stop();
-    pService->stop();
-    delete pCharacteristic;
+  //  pService->stop();
+  /*  delete pCharacteristic;
     delete pService;
     delete pServer;
     delete callbacks;
@@ -155,6 +216,7 @@ void disableBLE() {
     pServer = NULL;
     pService = NULL;
     BLEDevice::deinit(true);
+    */
   }
 }
 
@@ -167,6 +229,7 @@ void loop() {
     buttonPressedCount++;
     Serial.println(buttonPressedCount);
     if (buttonPressedCount > 10) {
+      buttonPressedCount = 0;
       Serial.println("configure button pressed");
       if (ConfigMode) {
         ConfigMode  = false;
@@ -182,7 +245,7 @@ void loop() {
         digitalWrite(LED_BLUE_CONFIG, LOW);
         disableBLE();
       }
-      delay(200); // enable the button and turn on bluetooth
+      delay(500); // enable the button and turn on bluetooth
     }
     _delay = 100;
   } else {
@@ -205,18 +268,6 @@ void loop() {
     Serial.print(txString);
     Serial.println(" ***");
 
-    // You can add the rxValue checks down here instead
-    // if you set "rxValue" as a global var at the top!
-    // Note you will have to delete "std::string" declaration
-    // of "rxValue" in the callback function.
-//    if (rxValue.find("A") != -1) {
-//      Serial.println("Turning ON!");
-//      digitalWrite(LED, HIGH);
-//    }
-//    else if (rxValue.find("B") != -1) {
-//      Serial.println("Turning OFF!");
-//      digitalWrite(LED, LOW);
-//    }
   }
   delay(_delay);
 }
