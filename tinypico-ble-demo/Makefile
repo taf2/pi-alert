@@ -17,6 +17,7 @@ configure:
 	pio lib install "TinyPICO Helper Library"
 	pio lib install "SoftwareSerialEsp32"
 	pio lib install "Adafruit VC0706 Serial Camera Library"
+	pio lib install "Arduino_CRC32"
 
 clean:
 	pio run --target clean

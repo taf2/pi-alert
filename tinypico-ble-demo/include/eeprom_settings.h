@@ -6,14 +6,21 @@
 struct EEPROMSettings {
   EEPROMSettings();
 
-  int load();
-  int save();
+	// load returns true only if the crc32 matches the first time a device loads before ever saving this would return false
+  bool load();
+	// writes this datastructure to eeprom with a crc32 checksum
+  bool save();
+	// checks the data saved and confirms whether it looks reasonable and likely good for use e.g. the data is reasonable
+	bool good();
 
   // IMPORTANT we can't reorder these since we're reading/writing this into EEPROM
-
   bool configured;
   char ssid[32]; // wifi ssid
   char pass[32]; // password ssid
+
+private:
+	uint32_t crc32();
+	uint32_t checksum; // crc32 checksum of our persisted data if this isn't matched we know we didn't write the data
 };
 
 #define EEPROM_SIZE sizeof(EEPROMSettings) + 3 // 0: timezoneIndex, 1: fahrenheit or celsius, 2: have preferences been set, 3: last time we pulled a quote

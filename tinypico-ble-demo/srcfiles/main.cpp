@@ -142,9 +142,7 @@ void setup() {
 
   tp.DotStar_SetPower( false );
 
-  settings.load();
-
-  if (settings.configured && strlen(settings.ssid) > 2 && strlen(settings.pass) > 2 && isalnum(settings.ssid[0])) {
+  if (settings.load() && settings.good()) {
     Serial.println("wifi is configured");
     Serial.println(settings.ssid);
     Serial.println(settings.pass);
@@ -206,17 +204,6 @@ void disableBLE() {
   if (pServer) {
     Serial.println("stop ble server");
     pServer->getAdvertising()->stop();
-  //  pService->stop();
-  /*  delete pCharacteristic;
-    delete pService;
-    delete pServer;
-    delete callbacks;
-    callbacks = NULL;
-    pCharacteristic = NULL;
-    pServer = NULL;
-    pService = NULL;
-    BLEDevice::deinit(true);
-    */
   }
 }
 
