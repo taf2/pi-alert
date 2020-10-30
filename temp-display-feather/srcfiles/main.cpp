@@ -289,13 +289,13 @@ int displayTime(short needUpdate) {
       ePaperDisplay.getTextBounds(buf, 0, 32, &x1, &y1, &w, &h);
       ePaperDisplay.fillRect(0, 32, w, h, GxEPD_WHITE);
       */
-      ePaperDisplay.setCursor(65, 260);  // Set the position to start printing text (x,y)
+      ePaperDisplay.setCursor(65, 240);  // Set the position to start printing text (x,y)
       ePaperDisplay.setFont(&FreeMono24pt7b);  // Set font
       ePaperDisplay.println(buf);  // print the date
       yield();
       // print a quote if we have one
       if (strlen(settings.quote) > 0) {
-        ePaperDisplay.setCursor(0, 340);  // Set the position to start printing text (x,y)
+        ePaperDisplay.setCursor(0, 290);  // Set the position to start printing text (x,y)
         ePaperDisplay.setFont(&FreeMono12pt7b);  // Set font
         ePaperDisplay.println(settings.quote);  // print the quote
         ePaperDisplay.print("by: ");  // print the author

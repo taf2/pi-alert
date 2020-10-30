@@ -33,7 +33,7 @@ struct EEPROMSettings {
    *  Time.now.to_i / 60 / 60 / 24
    * => 18560 -> day since 1970 which is what we can store this in short and get 32,767 which is around 2057 or we can use an int and not worry about it
    */
-  char quote[128]; // space for a quote
+  char quote[256]; // space for a quote
   char author[32]; // space for an authors name
 }; // we should have about 512 bytes to use in EEPROM 128 + 32 + 2 + 1 + 1 + 4 == 168 leaving plenty of room to spare...
 

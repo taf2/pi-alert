@@ -137,7 +137,7 @@ void EEPROMSettings::fetchQuote(NTPClient &timeClient) {
     }
     const char *_quote = quoteObj["quote"].as<String>().c_str();
     if (strlen(_quote) > 1) {
-      strncpy(this->quote, _quote, 127);
+      strncpy(this->quote, _quote, 255);
     }
     didFetchSuccess = true;
     break; // break since we just need the first one

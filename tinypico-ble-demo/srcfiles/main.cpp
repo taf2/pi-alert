@@ -15,8 +15,11 @@
 #define LED_BLUE_CONFIG 26
 #define ENABLE_CONFIG 33
 
+int last_sent_key = 0;
+const int BLE_KEY_CONFIG_SIZE = 2;
+const char *BLE_SET_CONFIG_KEYS[] =  {"ssid", "pass"}; // no keys longer than 4
+
 bool deviceConnected = false;
-float txValue = 0;
 bool ConfigMode = false; //  when pressed we'll enter configuration mode
 
 // Initialise the TinyPICO library
@@ -28,9 +31,9 @@ EEPROMSettings settings;
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
-#define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E" // UART service UUID
-#define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
-#define CHARACTERISTIC_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+#define SERVICE_UUID           "e2f52832-2c23-4318-85cb-be11f7421999" //"6E400001-B5A3-F393-E0A9-E50E24DCCA9E" // UART service UUID
+#define CHARACTERISTIC_UUID_RX "e5de2fab-bf9b-439d-81d1-24651d8201a7" //"6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+#define CHARACTERISTIC_UUID_TX "e6f61157-5e3a-4656-a412-de8610a63d76" //"6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
 void disableBLE();
 
@@ -70,12 +73,12 @@ class MyCallbacks: public BLECharacteristicCallbacks {
 
       Serial.println();
       if (key.length() > 0 && key == "ssid" && value.length() > 0) {
-        Serial.println( ("Connect to WiFi with: " + key + " and " + value).c_str() );
+        Serial.println( (key + " = " + value).c_str() );
         memcpy(settings.ssid, value.c_str(), 32);
         settings.configured = true; 
         settings.save();
       } else if (key.length() > 0 && key == "pass" && value.length() > 0) {
-        Serial.println( ("Connect to WiFi with: " + key + " and " + value).c_str() );
+        Serial.println( ( key + " = " + value).c_str() );
         memcpy(settings.pass, value.c_str(), 32);
         settings.configured = true; 
         settings.save();
@@ -167,22 +170,24 @@ void enableBLE() {
 
     // Create the BLE Service
     pService = pServer->createService(SERVICE_UUID);
+
     Serial.println("created pService");
+    BLEDescriptor client_characteristic_configuration(BLEUUID((uint16_t)0x2902));
 
     // Create a BLE Characteristic
-    pCharacteristic = pService->createCharacteristic(
-                        CHARACTERISTIC_UUID_TX,
-                        BLECharacteristic::PROPERTY_NOTIFY
-                      );
+    pCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_TX,BLECharacteristic::PROPERTY_NOTIFY);
 
     pCharacteristic->addDescriptor(new BLE2902());
+    //pCharacteristic->addDescriptor(&client_characteristic_configuration);
 
-    BLECharacteristic *pCharacteristic = pService->createCharacteristic(
-                                           CHARACTERISTIC_UUID_RX,
-                                           BLECharacteristic::PROPERTY_WRITE
-                                         );
+    BLECharacteristic *pRxC = pService->createCharacteristic(CHARACTERISTIC_UUID_RX,BLECharacteristic::PROPERTY_WRITE);
 
-    pCharacteristic->setCallbacks(new MyCallbacks());
+    // gatt.client_characteristic_configuration
+    //pRxC->addDescriptor(new BLE2902());
+    pRxC->addDescriptor(&client_characteristic_configuration);
+
+
+    pRxC->setCallbacks(new MyCallbacks());
 
     Serial.println("start server");
 
@@ -239,20 +244,39 @@ void loop() {
     buttonPressedCount  = 0;
   }
   if (ConfigMode && deviceConnected) {
-    // Fabricate some arbitrary junk for now...
-    txValue = 3.456; // This could be an actual sensor reading!
+    // send key:value pairs
+    // for each key and value we support for writing to our ble device
+    const char *key = BLE_SET_CONFIG_KEYS[last_sent_key];
+    char txBuffer[4+1+32+1]; // 4 bytes for key name, 1 byte for :, and 32 bytes for the value and 1 byte for a null
+    switch (last_sent_key) {
+    case 0:
+      snprintf(txBuffer, sizeof(txBuffer), "%s:%s", key, settings.ssid);
+      break;
+    case 1:
+      snprintf(txBuffer, sizeof(txBuffer), "%s:%s", key, settings.pass);
+      break;
+    default:
+      last_sent_key = 0;
+      // overflow
+      return;
+      break;
+    }
+
+    last_sent_key++;
+    if (last_sent_key >= BLE_KEY_CONFIG_SIZE) {
+      last_sent_key = 0; // loop back around
+    }
 
     // Let's convert the value to a char array:
-    char txString[8]; // make sure this is big enuffz
-    dtostrf(txValue, 1, 2, txString); // float_val, min_width, digits_after_decimal, char_buffer
+    //dtostrf(txValue, 1, 2, txString); // float_val, min_width, digits_after_decimal, char_buffer
 
 //    pCharacteristic->setValue(&txValue, 1); // To send the integer value
 //    pCharacteristic->setValue("Hello!"); // Sending a test message
-    pCharacteristic->setValue(txString);
+    pCharacteristic->setValue(txBuffer);
 
     pCharacteristic->notify(); // Send the value to the app!
     Serial.print("*** Sent Value: ");
-    Serial.print(txString);
+    Serial.print(txBuffer);
     Serial.println(" ***");
 
   }
