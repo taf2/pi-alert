@@ -1,4 +1,3 @@
-
 #include <SPI.h>
 #include <Adafruit_VS1053.h>
 #include <SD.h>
@@ -40,17 +39,17 @@ void setup() {
 
   // Play one file, don't return until complete
   Serial.println(F("Playing track 001"));
-  musicPlayer->playFullFile("/COME-T~1.MP3");
+  //musicPlayer->playFullFile("/COME-T~1.MP3");
   // Play another file in the background, REQUIRES interrupts!
   //Serial.println(F("Playing track 002"));
-//  musicPlayer->startPlayingFile("/track002.mp3");
+  musicPlayer->startPlayingFile("/SUN.mp3");
 }
 
 void loop() {
   // File is playing in the background
   if (musicPlayer->stopped()) {
-    Serial.println("Done playing music");
     while (1) {
+			Serial.println("Done playing music");
       delay(10);  // we're done! do nothing...
     }
   }

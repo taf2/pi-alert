@@ -10,6 +10,7 @@
 #define ENABLE_EPAPER 1
 #include <time.h>
 #include <SPI.h>
+#include <SD.h>
 #include <Wire.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -22,6 +23,7 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+
 
 // so we can write to epaper
 #ifdef ENABLE_EPAPER
@@ -100,6 +102,23 @@ GxEPD2_3C<GxEPD2_565c, GxEPD2_565c::HEIGHT> ePaperDisplay(GxEPD2_565c(CS_PIN, DC
 #endif
 
 EEPROMSettings settings;
+#ifdef ENABLE_EPAPER
+TaskHandle_t UpdateEPaperTask;
+volatile bool doDisplay = false;
+
+void UpdateEPaper( void * parameter) {
+  while(true) {
+    if (doDisplay) {
+      ePaperDisplay.display();
+      doDisplay = false;
+    } else {
+      //delay(100);
+      yield();
+    }
+  }
+}
+#endif
+
 
 void displayln(const char *text) {
   display.println(text);
@@ -236,6 +255,13 @@ void setup(void) {
   Serial.print("display\r\n ");
   delay(2000);
   */
+    xTaskCreatePinnedToCore(UpdateEPaper, /* Function to implement the task */
+    "UpdateEPaper", /* Name of the task */
+    10000,  /* Stack size in words */
+    NULL,  /* Task input parameter */
+    0,  /* Priority of the task */
+    &UpdateEPaperTask,  /* Task handle. */
+    0); /* Core where the task should run */
 #endif
 
 }
@@ -324,6 +350,7 @@ float readBattery() {
   return measuredvbat;
 }
 
+
 void displayClock() {
   sensors_event_t temp, pressure, humidity;
   ms8607.getEvent(&pressure, &temp, &humidity);
@@ -357,9 +384,7 @@ void displayClock() {
       // as well as updating our epaper if it's enabled
       settings.loadQuote(timeClient);
 #ifdef ENABLE_EPAPER
-      yield();
-      ePaperDisplay.display();
-      delay(2000);
+      doDisplay = true;
 #endif
     }
   }

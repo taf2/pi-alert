@@ -14,6 +14,8 @@
 #define LED_CONFIGURED 25
 #define LED_BLUE_CONFIG 26
 #define ENABLE_CONFIG 33
+#define BUZZER 32
+#define MP3_PWR 21
 
 int last_sent_key = 0;
 const int BLE_KEY_CONFIG_SIZE = 2;
@@ -135,11 +137,27 @@ void initWiFi(const char *ssid, const char *password) {
   delay(2000);
 }
 
+void startSong() {
+  digitalWrite(MP3_PWR, HIGH); // send power to the device
+  // it takes sometime for the relay to warm up to give power to the device... we need to delay here to ensure it had time 
+  delay(1000);
+  digitalWrite(BUZZER, LOW); // play music
+  delay(100);
+  digitalWrite(BUZZER, HIGH); // play music
+}
+void stopSong() {
+  digitalWrite(MP3_PWR, LOW); // CUT the power
+}
+
 void setup() {
   Serial.begin(115200);
   pinMode(LED_CONFIGURED, OUTPUT);
   pinMode(LED_BLUE_CONFIG, OUTPUT);
   pinMode(ENABLE_CONFIG, INPUT);
+  pinMode(BUZZER, OUTPUT);
+  pinMode(MP3_PWR, OUTPUT);
+  digitalWrite(BUZZER, HIGH);
+  digitalWrite(MP3_PWR, LOW);
 
 	EEPROM.begin(EEPROM_SIZE);
 
@@ -151,10 +169,14 @@ void setup() {
     Serial.println(settings.pass);
     initWiFi(settings.ssid, settings.pass);
   }
+
+  startSong();
 }
 
 void enableBLE() {
   // Create the BLE Device
+  //  
+  stopSong();
   Serial.println("enableBLE");
   if (!BLEDevice::getInitialized()) {
     Serial.println("init start");
