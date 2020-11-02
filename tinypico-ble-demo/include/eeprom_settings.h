@@ -17,6 +17,8 @@ struct EEPROMSettings {
   bool configured;
   char ssid[32]; // wifi ssid
   char pass[32]; // password ssid
+  short  hour; // 24 hour clock max value 23 (alrh)
+  short  minute; // 60 minutes per hour max value 59 (alrm)
 
 private:
 	uint32_t crc32();

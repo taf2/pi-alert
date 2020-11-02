@@ -1,9 +1,13 @@
+#include <time.h>
 #include <TinyPICO.h>
 /*
    The goal of this is to get wifi ssid and password via bluetooth and then start up the bluetooth.
    we'll use eeprom to save the wifi password and ssid so reboots don't need to be configured again.
 */
 #include <WiFi.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
@@ -18,11 +22,15 @@
 #define MP3_PWR 21
 
 int last_sent_key = 0;
-const int BLE_KEY_CONFIG_SIZE = 2;
-const char *BLE_SET_CONFIG_KEYS[] =  {"ssid", "pass"}; // no keys longer than 4
+const int BLE_KEY_CONFIG_SIZE = 5;
+const char *BLE_SET_CONFIG_KEYS[] =  {"ssid", "pass", "alrh", "alrm", "dtim"}; // no keys longer than 4
 
 bool deviceConnected = false;
 bool ConfigMode = false; //  when pressed we'll enter configuration mode
+bool DidInitWifi = false;
+bool SongActive = false;
+time_t StopSongTime = 0; // the time that it was stopped
+//static char buffer[1024];
 
 // Initialise the TinyPICO library
 TinyPICO tp = TinyPICO();
@@ -30,6 +38,8 @@ BLEService *pService;
 BLEServer *pServer;
 BLECharacteristic *pCharacteristic;
 EEPROMSettings settings;
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP);
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
@@ -38,6 +48,7 @@ EEPROMSettings settings;
 #define CHARACTERISTIC_UUID_TX "e6f61157-5e3a-4656-a412-de8610a63d76" //"6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
 void disableBLE();
+void initWiFi(const char *ssid, const char *password);
 
 class MyServerCallbacks: public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
@@ -79,11 +90,33 @@ class MyCallbacks: public BLECharacteristicCallbacks {
         memcpy(settings.ssid, value.c_str(), 32);
         settings.configured = true; 
         settings.save();
+        if (strlen(settings.pass) > 0) {
+          initWiFi(settings.ssid, settings.pass);
+          // try to init wifi
+        }
       } else if (key.length() > 0 && key == "pass" && value.length() > 0) {
         Serial.println( ( key + " = " + value).c_str() );
         memcpy(settings.pass, value.c_str(), 32);
         settings.configured = true; 
         settings.save();
+        if (strlen(settings.pass) > 0) {
+          initWiFi(settings.ssid, settings.pass);
+          // try to init wifi
+        }
+      } else if (key.length() > 0 && key == "alrh" && value.length() > 0) {
+        Serial.println( ( key + " = " + value).c_str() );
+        settings.hour = atoi(value.c_str());
+        StopSongTime = 0; // reset alarm stop
+        settings.save();
+        Serial.print("hour set:");
+        Serial.println(settings.hour);
+      } else if (key.length() > 0 && key == "alrm" && value.length() > 0) {
+        Serial.println( ( key + " = " + value).c_str() );
+        settings.minute = atoi(value.c_str());
+        StopSongTime = 0; // reset alarm stop
+        settings.save();
+        Serial.print("minute set:");
+        Serial.println(settings.minute);
       }
 
 
@@ -135,6 +168,10 @@ void initWiFi(const char *ssid, const char *password) {
   Serial.print(ip.toString().c_str());
 
   delay(2000);
+  // initialize time
+  timeClient.begin();
+  timeClient.update(); // get current time
+  DidInitWifi = true;
 }
 
 void startSong() {
@@ -144,9 +181,13 @@ void startSong() {
   digitalWrite(BUZZER, LOW); // play music
   delay(100);
   digitalWrite(BUZZER, HIGH); // play music
+  SongActive  = true;
 }
-void stopSong() {
+void stopSong(bool report=true) {
   digitalWrite(MP3_PWR, LOW); // CUT the power
+  SongActive   = false;
+  if (report) { Serial.println("stop alarm"); }
+  StopSongTime = timeClient.getEpochTime();
 }
 
 void setup() {
@@ -166,17 +207,17 @@ void setup() {
   if (settings.load() && settings.good()) {
     Serial.println("wifi is configured");
     Serial.println(settings.ssid);
-    Serial.println(settings.pass);
     initWiFi(settings.ssid, settings.pass);
+  } else {
+    Serial.println("settings not good yet");
   }
 
-  startSong();
+  //startSong();
 }
 
 void enableBLE() {
   // Create the BLE Device
   //  
-  stopSong();
   Serial.println("enableBLE");
   if (!BLEDevice::getInitialized()) {
     Serial.println("init start");
@@ -238,10 +279,11 @@ int buttonPressedCount = 0;
 
 void loop() {
   int button = digitalRead(ENABLE_CONFIG);
-  int _delay = 1000;
+  int _delay = 100;
   if (button) {
     buttonPressedCount++;
     Serial.println(buttonPressedCount);
+    stopSong(); // single press to stop alarm
     if (buttonPressedCount > 10) {
       buttonPressedCount = 0;
       Serial.println("configure button pressed");
@@ -265,17 +307,57 @@ void loop() {
   } else {
     buttonPressedCount  = 0;
   }
+  if (DidInitWifi) { 
+    const int    tzOffset = -4 * 60 * 60;
+    const time_t epoch = timeClient.getEpochTime();
+    const time_t offsetTime = epoch + tzOffset;
+    const int    currentDay = offsetTime / 24 / 60 / 60; // convert seconds to the day
+    const short hour = settings.hour;
+    const short minute = settings.minute;
+
+    const int startOfDayInSeconds = (currentDay * 24 * 60 * 60); // this gets us the starting second of the current day
+    const int startTimeToAlarm = startOfDayInSeconds + (hour*60*60) + (minute*60);
+    const int endTimeToAlarm = startOfDayInSeconds + (hour*60*60) + ((minute+2)*60); // 2 minutes of padding
+
+    //snprintf(buffer, 1024, "tz: %d, epoch: %ld (%ld), startTimeToAlarm: %d, endTimeToAlarm: %d\n", tzOffset, epoch, offsetTime, startTimeToAlarm, endTimeToAlarm);
+    //Serial.println(buffer);
+
+    if (offsetTime > startTimeToAlarm && offsetTime < endTimeToAlarm) {
+      if (!SongActive) {
+        Serial.println("sound the alarm");
+        if (StopSongTime  < startTimeToAlarm) {
+          startSong();
+        } else {
+          Serial.println("you stopped it");
+        }
+      }
+    } else {
+      stopSong(false);
+    }
+  }
+  
+
   if (ConfigMode && deviceConnected) {
+    const time_t epoch = timeClient.getEpochTime();
     // send key:value pairs
     // for each key and value we support for writing to our ble device
     const char *key = BLE_SET_CONFIG_KEYS[last_sent_key];
     char txBuffer[4+1+32+1]; // 4 bytes for key name, 1 byte for :, and 32 bytes for the value and 1 byte for a null
     switch (last_sent_key) {
-    case 0:
+    case 0: // "ssid"
       snprintf(txBuffer, sizeof(txBuffer), "%s:%s", key, settings.ssid);
       break;
-    case 1:
+    case 1: // "pass"
       snprintf(txBuffer, sizeof(txBuffer), "%s:%s", key, settings.pass);
+      break;
+    case 2: // "alrh" -> a 24 hour when the alarm should sound
+      snprintf(txBuffer, sizeof(txBuffer), "%s:%d", key, settings.hour);
+      break;
+    case 3: // "alrm" -> the minute that the alarm should sound within an hour
+      snprintf(txBuffer, sizeof(txBuffer), "%s:%d", key, settings.minute);
+      break;
+    case 4: // "dtim" -> device time a read only option so we can see what time the device has stored
+      snprintf(txBuffer, sizeof(txBuffer), "%s:%lu", key, epoch);
       break;
     default:
       last_sent_key = 0;
@@ -297,9 +379,10 @@ void loop() {
     pCharacteristic->setValue(txBuffer);
 
     pCharacteristic->notify(); // Send the value to the app!
-    Serial.print("*** Sent Value: ");
+    /*Serial.print("*** Sent Value: ");
     Serial.print(txBuffer);
     Serial.println(" ***");
+    */
 
   }
   delay(_delay);
