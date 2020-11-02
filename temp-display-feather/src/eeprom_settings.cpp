@@ -1,4 +1,13 @@
+#include <math.h>
+#include <Arduino_CRC32.h>
 #include "eeprom_settings.h"
+
+static inline float kelvinToF(float kelvin) {
+  Serial.println("convert:");
+  Serial.println(kelvin);
+  return (kelvin - 273.15) * 1.8 + 32;
+}
+
 // we need this table to allow buttons to switch between timezones also we can in this way perist the timezoneIndex in EEPROM
 static const int ZONES[][2] = {{14,0}, // UTC +14	Samoa and Christmas Island/Kiribati	LINT	Kiritimati
 																{13,45}, // UTC +13:45	Chatham Islands/New Zealand	CHADT	Chatham Islands
@@ -90,11 +99,69 @@ EEPROMSettings::EEPROMSettings() {
 }
 //static int mode = 0; // Button A
 int EEPROMSettings::timezoneOffset() {
+	return _timezoneOffset;
+	/*
   int hours = ZONES[timezoneIndex][0];
   int minutes = ZONES[timezoneIndex][1];
   int totalMinutes = (hours * 60 + minutes);
   int totalSeconds = totalMinutes * 60;
 	return totalSeconds;
+	*/
+}
+
+void EEPROMSettings::fetchWeather(NTPClient &timeClient) {
+  WiFiClient client;
+  HTTPClient http;
+  // curl -v  -i -X GET http://quotes.rest/qod.json?category=management
+  char url[256];
+  snprintf(url, 256, "http://api.openweathermap.org/data/2.5/weather?zip=%s,us&appid=%s", zipcode, weatherAPI);
+  http.setConnectTimeout(10000);// timeout in ms
+  http.setTimeout(10000); // 10 seconds
+  http.setUserAgent("Fun-Clock");
+  http.begin(client, url);
+  int r =  http.GET();
+	if (r < 0) {
+		Serial.println("error fetching weather");
+    http.end();
+		return;
+	}
+  String body = http.getString();
+  http.end();
+  /*
+   * {"coord":{"lon":-76.56,"lat":39.08},
+   *  "weather":[{"id":802,"main":"Clouds","description":"scattered clouds","icon":"03d"}],
+   *  "base":"stations",
+   *  "main":{"temp":284.8,"feels_like":280.93,"temp_min":283.15,"temp_max":286.48,"pressure":1020,"humidity":82},
+   *  "visibility":10000,"wind":{"speed":5.1,"deg":180},
+   *  "clouds":{"all":40},"dt":1604237734,
+   *  "sys":{"type":1,"id":5056,"country":"US","sunrise":1604230454,"sunset":1604268317},
+   *  "timezone":-18000,"id":0,"name":"Severna Park","cod":200}
+   */
+  Serial.println("weather response");
+  Serial.println(body);
+  Serial.println(body.length());
+  StaticJsonDocument<1024> doc;
+  DeserializationError error = deserializeJson(doc, body);
+  if (error) {
+    Serial.print(F("deserializeJson() failed: "));
+    Serial.println(error.f_str());
+    return;
+  }
+
+  JsonObject obj = doc.as<JsonObject>();
+  // contents -> { quotes -> [ { quote: "...", length: , author: ".."  },  ] }
+  JsonObject main = obj[String("main")].as<JsonObject>();
+  _timezoneOffset = obj[String("timezone")].as<int>();
+  temp        = kelvinToF(main[String("temp")].as<float>());
+  feels_like  = kelvinToF(main[String("feels_like")].as<float>());
+  save();
+  Serial.print("fetched temp:");
+  Serial.print(temp);
+  Serial.print(", feels like:");
+  Serial.print(feels_like);
+	timeClient.setTimeOffset(timezoneOffset());
+  //float min_temp   = kelvinToF( main[String("temp_min")].as<float>());
+  //float max_temp   = kelvinToF( main[String("temp_max")].as<float>());
 }
 
 void EEPROMSettings::fetchQuote(NTPClient &timeClient) {
@@ -115,7 +182,7 @@ void EEPROMSettings::fetchQuote(NTPClient &timeClient) {
   //http.writeToStream(&Serial);
   String body = http.getString();
   http.end();
-  DynamicJsonDocument doc(body.length());
+  StaticJsonDocument<1024> doc;
   DeserializationError error = deserializeJson(doc, body);
   if (error) {
     Serial.print(F("deserializeJson() failed: "));
@@ -143,8 +210,8 @@ void EEPROMSettings::fetchQuote(NTPClient &timeClient) {
     break; // break since we just need the first one
   }
   if (didFetchSuccess) {
-		Serial.println(this->quote);
-		Serial.println(this->author);
+    Serial.println(this->quote);
+    Serial.println(this->author);
     lastQuoteFetchDay = timeClient.getEpochTime() / 60 / 60 / 24;
     save();
   }
@@ -155,6 +222,7 @@ void EEPROMSettings::loadQuote(NTPClient &timeClient) {
   if (currentDay > lastQuoteFetchDay) {
     Serial.println("fetching a new quote for a new day");
     fetchQuote(timeClient);
+    fetchWeather(timeClient);
   } else {
 		//Serial.println("we already have a quote:");
 		//Serial.println(quote);
@@ -197,17 +265,33 @@ void EEPROMSettings::prevZone(Adafruit_SSD1306 &display, NTPClient &timeClient) 
 	adjustTimezone(display, timeClient);
 }
 
-int EEPROMSettings::load() {
-	int ret = EEPROM_readAnything<EEPROMSettings>(3, *this);
+bool EEPROMSettings::load() {
+	int ret = EEPROM_readAnything<EEPROMSettings>(0, *this);
+	if (ret <= 0) { return false; }
 	if (timezoneIndex >= (sizeof(ZONES) / sizeof(int))) { // out of bounds
 		timezoneIndex = 28; // EDT
 	}
-	return ret;
+	return crc32() == checksum;
 }
 
-int EEPROMSettings::save() {
+bool EEPROMSettings::save() {
 	hasSetting = false;
-	int ret =  EEPROM_writeAnything<EEPROMSettings>(3, *this);
+	checksum = crc32();
+	int ret =  EEPROM_writeAnything<EEPROMSettings>(0, *this);
 	EEPROM.commit();
-	return ret;
+	return ret > 0;
+}
+
+bool EEPROMSettings::good() {
+	return configured && strlen(ssid) > 2 && strlen(pass) > 2 && isalnum(ssid[0]);
+}
+
+uint32_t EEPROMSettings::crc32() {
+	uint8_t data[64];
+	memcpy(data, ssid, 32);
+	memcpy(data+32, pass, 32);
+
+	Arduino_CRC32 crc32;
+
+	return crc32.calc(data, 64);
 }

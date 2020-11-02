@@ -14,6 +14,7 @@ monitor:
 	pio device monitor
 
 configure:
+	pio lib install "Arduino_CRC32"
 	pio lib install "adafruit/Adafruit MS8607"
 	pio lib install "adafruit/Adafruit BusIO"
 	pio lib install "adafruit/Adafruit Unified Sensor"

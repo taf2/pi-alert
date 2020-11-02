@@ -84,6 +84,7 @@
   #define BUTTON_C  5
 #endif
 
+static time_t prevSecond = 0;
 static time_t lastSecond    = 0;
 static float lastTemp    = 0;
 
@@ -92,29 +93,58 @@ static char buffer[1024];
 
 static const char *ssid = "<%= @config[:ssid] %>"; // Put your SSID here
 static const char *password = "<%= @config[:pass] %>"; // Put your PASSWORD here
+int displayTime(short needUpdate, NTPClient &tc, time_t &lastSecond, bool normalDisplay=true);
 
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP);
 Adafruit_MS8607 ms8607;
 Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
-#ifdef ENABLE_EPAPER
-GxEPD2_3C<GxEPD2_565c, GxEPD2_565c::HEIGHT> ePaperDisplay(GxEPD2_565c(CS_PIN, DC_PIN, RST_PIN, BUSY_PIN));
-#endif
 
 EEPROMSettings settings;
 #ifdef ENABLE_EPAPER
+GxEPD2_3C<GxEPD2_565c, GxEPD2_565c::HEIGHT> ePaperDisplay(GxEPD2_565c(CS_PIN, DC_PIN, RST_PIN, BUSY_PIN));
 TaskHandle_t UpdateEPaperTask;
-volatile bool doDisplay = false;
+// moving all ePaperDisplay operations into their own loop on a different core to keep the clock responsive
 
 void UpdateEPaper( void * parameter) {
+  NTPClient tc(ntpUDP);
+  tc.begin();
+
+	ePaperDisplay.init(115200);  // Initiate the display
+  ePaperDisplay.setRotation(0);  // Set orientation. Goes from 0, 1, 2 or 3
+  ePaperDisplay.setCursor(0,0);
+	Serial.println("Initialized epaper");
+
+  ePaperDisplay.setTextWrap(true);  // By default, long lines of text are set to automatically “wrap” back to the leftmost column.
+  ePaperDisplay.setFullWindow();  // Set full window mode, meaning is going to update the entire screen
+  ePaperDisplay.setTextColor(GxEPD_BLACK);  // Set color for text
+  short needUpdate = 0;
+  time_t lastSecond = 0;
+	int zoneOffset = settings.timezoneOffset();
+  tc.update();
+	tc.setTimeOffset(zoneOffset);
+
   while(true) {
-    if (doDisplay) {
+    needUpdate = displayTime(needUpdate, tc, lastSecond, false);
+    if (needUpdate == 2) {
+      Serial.println("refresh epaper");
+      //ePaperDisplay.refresh(80, 220, 400, 96);
+      ePaperDisplay.display();
+			if (settings.timezoneOffset() != zoneOffset) {
+				zoneOffset = settings.timezoneOffset();
+				tc.setTimeOffset(zoneOffset);
+			}
+    } else {
+      delay(500);
+    }
+/*    if (doDisplay) {
       ePaperDisplay.display();
       doDisplay = false;
     } else {
       //delay(100);
       yield();
     }
+    */
   }
 }
 #endif
@@ -165,12 +195,15 @@ void initButtons() {
   pinMode(BUTTON_A, INPUT_PULLUP);
   pinMode(BUTTON_B, INPUT_PULLUP);
   pinMode(BUTTON_C, INPUT_PULLUP);
+  digitalWrite(BUTTON_C, HIGH);
+  digitalWrite(BUTTON_B, HIGH);
+  digitalWrite(BUTTON_A, HIGH);
 }
 
 void initWeather() {
   // Try to initialize!
   if (!ms8607.begin()) {
-    while (1) {Serial.println("Failed to find MS8607 chip"); delay(10); }
+    while (1) {Serial.println("Failed to find MS8607 chip"); delay(1000); }
   }
   Serial.println("MS8607 Found!");
 
@@ -204,10 +237,6 @@ void setup(void) {
 
 	// now init the ePaper
 #ifdef ENABLE_EPAPER
-	ePaperDisplay.init(115200);  // Initiate the display
-  ePaperDisplay.setRotation(0);  // Set orientation. Goes from 0, 1, 2 or 3
-  ePaperDisplay.setCursor(0,0);
-	Serial.println("Initialized epaper");
 #endif
 
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // Address 0x3C for 128x32
@@ -223,27 +252,30 @@ void setup(void) {
 //    Serial.println("An Error has occurred while mounting SPIFFS");
 //  }
 //
+  initButtons();
+
   initWiFi();
 
-  initButtons();
-  initWeather();
+  initWeather(); // local device weather conditions
 
   Serial.println("loading time");
 
   // initialize time
   timeClient.begin();
 
-
   settings.load();
+  strncpy(settings.zipcode, "<%= @config[:zipcode] %>", 6);
+  strncpy(settings.weatherAPI, "<%= @config[:weatherAPI] %>", 33);
 	int offsetSeconds = settings.timezoneOffset();
 	Serial.print("set timezone offset:");
 	Serial.println(offsetSeconds);
 	timeClient.setTimeOffset(offsetSeconds);
+  timeClient.update();
  
 #ifdef ENABLE_EPAPER
-  ePaperDisplay.setTextWrap(true);  // By default, long lines of text are set to automatically “wrap” back to the leftmost column.
-  ePaperDisplay.setFullWindow();  // Set full window mode, meaning is going to update the entire screen
-  ePaperDisplay.setTextColor(GxEPD_BLACK);  // Set color for text
+  // do one initial display
+  //ePaperDisplay.fillScreen(GxEPD_WHITE);  // Clear previous graphics to start over to print new things.
+  //ePaperDisplay.display();
 
 /*  ePaperDisplay.fillScreen(GxEPD_WHITE);  // Clear previous graphics to start over to print new things.
   
@@ -255,58 +287,59 @@ void setup(void) {
   Serial.print("display\r\n ");
   delay(2000);
   */
-    xTaskCreatePinnedToCore(UpdateEPaper, /* Function to implement the task */
+
+  xTaskCreatePinnedToCore(UpdateEPaper, /* Function to implement the task */
     "UpdateEPaper", /* Name of the task */
     10000,  /* Stack size in words */
     NULL,  /* Task input parameter */
-    0,  /* Priority of the task */
+    -1,  /* Priority of the task */
     &UpdateEPaperTask,  /* Task handle. */
-    0); /* Core where the task should run */
+    1); /* Core where the task should run */
 #endif
 
 }
 
 // returns 0 no updates, returns 1 only lcd updates, returns 2 both lcd and epaper updates
-int displayTime(short needUpdate) {
+// normalDisplay is so we can run this in the main loop for an lcd but also in an epaper loop
+int displayTime(short needUpdate, NTPClient &tc, time_t &lastSecond, bool normalDisplay) {
   
-  time_t rawtime = timeClient.getEpochTime();
+  time_t rawtime = tc.getEpochTime();
   int rawMinute = (int)(rawtime/60);
   int lastMinute = (int)(lastSecond/60);
   if (needUpdate ||  rawMinute > lastMinute) {
     bool epaper_update = (rawMinute > lastMinute);
-    snprintf(buffer, 1024,
-             "rawtime: %ld, lastSecond: %ld, rm: %d lm: %d\n", rawtime, lastSecond, rawMinute, lastMinute);
-    Serial.print(buffer);
-    timeClient.update(); // only update client every 60 seconds avoids extra network ?
+    //snprintf(buffer, 1024,
+    //         "rawtime: %ld, lastSecond: %ld, rm: %d lm: %d\n", rawtime, lastSecond, rawMinute, lastMinute);
+    //Serial.print(buffer);
+    tc.update(); // only update client every 60 seconds avoids extra network ?
     struct tm  ts;
     ts = *localtime(&rawtime);
     lastSecond = rawtime;
     strftime(buf, sizeof(buf), "%l:%M %p\n", &ts);
-    display.setTextSize(2);
-    display.setTextColor(SSD1306_WHITE);
-    display.print(buf);
+    if (normalDisplay) {
+      display.setTextSize(2);
+      display.setTextColor(SSD1306_WHITE);
+      display.print(buf);
+    }
     if (epaper_update) {
 #ifdef ENABLE_EPAPER
-      yield();
-      //int16_t  x1, y1;
-      //uint16_t w, h;
-
       //ePaperDisplay.getTextBounds(buf, 0, 32, &x1, &y1, &w, &h);
       //ePaperDisplay.fillRect(0, 32, w, h, GxEPD_WHITE);
       ePaperDisplay.fillScreen(GxEPD_WHITE);  // Clear previous graphics to start over to print new things.
-      // Print text - "Hello World!":
-      //ePaperDisplay.setTextSize(12);
+      //ePaperDisplay.setPartialWindow(0, 0, ePaperDisplay.width(), ePaperDisplay.height());
       ePaperDisplay.setFont(&Roboto_Regular78pt7b);  // Set font
-      ePaperDisplay.setCursor(0, 180);  // Set the position to start printing text (x,y)
+      ePaperDisplay.setCursor(80, 220);  // Set the position to start printing text (x,y)
       strftime(buf, sizeof(buf), "%l:%M", &ts);
       ePaperDisplay.println(buf);  // Print some text
 #endif
     }
-    display.setCursor(0,18);
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
     strftime(buf, sizeof(buf), "%a %b, %d\n", &ts);
-    display.print(buf);
+    if (normalDisplay) {
+      display.setCursor(0,18);
+      display.setTextSize(1);
+      display.setTextColor(SSD1306_WHITE);
+      display.print(buf);
+    }
     if (epaper_update) {
 #ifdef ENABLE_EPAPER
       /*int16_t  x1, y1;
@@ -315,8 +348,8 @@ int displayTime(short needUpdate) {
       ePaperDisplay.getTextBounds(buf, 0, 32, &x1, &y1, &w, &h);
       ePaperDisplay.fillRect(0, 32, w, h, GxEPD_WHITE);
       */
-      ePaperDisplay.setCursor(65, 240);  // Set the position to start printing text (x,y)
-      ePaperDisplay.setFont(&FreeMono24pt7b);  // Set font
+      ePaperDisplay.setCursor(25, 50);  // Set the position to start printing text (x,y)
+      ePaperDisplay.setFont(&FreeMono18pt7b);  // Set font
       ePaperDisplay.println(buf);  // print the date
       yield();
       // print a quote if we have one
@@ -327,11 +360,16 @@ int displayTime(short needUpdate) {
         ePaperDisplay.print("by: ");  // print the author
         ePaperDisplay.println(settings.author);  // print the author
       }
+      // display temperature
+      ePaperDisplay.setCursor(480, 50);
+      ePaperDisplay.setFont(&FreeMono18pt7b);
+      ePaperDisplay.print((int)roundf(settings.temp));
+      ePaperDisplay.println("F");
 #endif
       return 2;
     }
     return 1;
-  } else {
+  } else if (normalDisplay) {
     struct tm  ts;
     ts = *localtime(&rawtime);
     lastSecond = rawtime;
@@ -352,9 +390,10 @@ float readBattery() {
 
 
 void displayClock() {
-  sensors_event_t temp, pressure, humidity;
-  ms8607.getEvent(&pressure, &temp, &humidity);
+  sensors_event_t temp, temp_pressure, temp_humidity;
+  ms8607.getEvent(&temp_pressure, &temp, &temp_humidity);
   float temperature = temp.temperature;
+  float humidity = temp_humidity.relative_humidity;
   float battery = readBattery();
   short needUpdate = roundf(lastTemp) != roundf(temperature);
 
@@ -367,24 +406,24 @@ void displayClock() {
   display.clearDisplay();
   display.setCursor(0,0);
   display.setTextColor(SSD1306_WHITE);
-  needUpdate = displayTime(needUpdate);
+  needUpdate = displayTime(needUpdate, timeClient, lastSecond);
   if (needUpdate) {
     snprintf(buffer, 1024,
              "%.0f%s, %.0f %%rH, %.1fV\n",
-             temperature, (settings.fahrenheit ? "F" : "C"), humidity.relative_humidity, battery);
+             temperature, (settings.fahrenheit ? "F" : "C"), humidity, battery);
     display.setTextSize(1);
 
     display.print(buffer);
-
-    yield();
 
     display.display();
     if (needUpdate == 2) {
       // this means at least 1 minute has past since the last update so we'll do things here like also checking alarms and quote updates
       // as well as updating our epaper if it's enabled
+      Serial.println("check for updated quote");
       settings.loadQuote(timeClient);
 #ifdef ENABLE_EPAPER
-      doDisplay = true;
+      //doDisplay = true;
+      //ePaperDisplay.display();
 #endif
     }
   }
@@ -408,7 +447,7 @@ void loop() {
     button_c_pressed = 1;
   }
 
-  if (button_a_pressed) {
+  /*if (button_a_pressed) {
     Serial.println("Select prev timezone");
     settings.prevZone(display, timeClient);
     button_delay = 1;
@@ -418,20 +457,38 @@ void loop() {
     Serial.println("Select next timezone");
     settings.nextZone(display, timeClient);
     button_delay = 1;
-  }
+  }*/
 
   if (button_c_pressed) {
-    if (settings.fahrenheit) {
+    /*if (settings.fahrenheit) {
       Serial.println("Modify to fahrenheit celsius");
       settings.fahrenheit = false;
     } else {
       Serial.println("Modify celsius to fahrenheit");
       settings.fahrenheit = true;
-    }
+    }*/
     //settings.save();
+    Serial.println("pressed C");
     settings.fetchQuote(timeClient);
+    settings.fetchWeather(timeClient);
     button_delay = 1;
   }
+	time_t rawTime = timeClient.getEpochTime();
+  int rawMinute = (int)(rawTime/60);
+  int lastMinute = (int)(prevSecond/60);
+	if (rawMinute > lastMinute) {
+		int rawHour = rawMinute/60;
+		int lastHour = lastMinute/60;
+		snprintf(buffer, 1024, "rawTime: %lu, prevSecond: %lu, rawMinute: %d, lastMinute: %d, rawHour: %d, lastHour: %d\n", rawTime, prevSecond, rawMinute, lastMinute, rawHour, lastHour);
+		Serial.print(buffer);
+
+		if (lastHour < rawHour) {
+			Serial.println("it's been over an hour fetching updated data");
+			settings.fetchQuote(timeClient);
+			settings.fetchWeather(timeClient);
+		}
+	}
+	prevSecond = rawTime;
 
   if (button_a_pressed && button_b_pressed) {
     display.clearDisplay();
