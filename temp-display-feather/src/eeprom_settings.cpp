@@ -112,12 +112,10 @@ int EEPROMSettings::timezoneOffset() {
 void EEPROMSettings::fetchWeather(NTPClient &timeClient) {
   WiFiClient client;
   HTTPClient http;
-  // curl -v  -i -X GET http://quotes.rest/qod.json?category=management
-  char url[256];
-  snprintf(url, 256, "http://api.openweathermap.org/data/2.5/weather?zip=%s,us&appid=%s", zipcode, weatherAPI);
+  char url[128]; // usually 98 bytes so this should be safe
+  snprintf(url, 128, "http://api.openweathermap.org/data/2.5/weather?zip=%s,us&appid=%s", zipcode, weatherAPI);
   http.setConnectTimeout(10000);// timeout in ms
   http.setTimeout(10000); // 10 seconds
-  http.setUserAgent("Fun-Clock");
   http.begin(client, url);
   int r =  http.GET();
 	if (r < 0) {
@@ -160,6 +158,7 @@ void EEPROMSettings::fetchWeather(NTPClient &timeClient) {
   Serial.print(", feels like:");
   Serial.print(feels_like);
 	timeClient.setTimeOffset(timezoneOffset());
+	Serial.println("finished updating timezone");
   //float min_temp   = kelvinToF( main[String("temp_min")].as<float>());
   //float max_temp   = kelvinToF( main[String("temp_max")].as<float>());
 }

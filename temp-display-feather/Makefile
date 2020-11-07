@@ -25,7 +25,7 @@ configure:
 	pio lib install "bblanchon/ArduinoJson"
 	pio lib install "nkolban/ESP32 BLE Arduino"
 	#pio lib install "arduino-libraries/SD"
-	pio lib install "adafruit/Adafruit VS1053 Library"
+#	pio lib install "adafruit/Adafruit VS1053 Library"
 	#pio lib uninstall SD@0.0.0-alpha+sha.041f788250
 	pio lib uninstall "arduino-libraries/SD"
 	#rm -rf .pio/libdeps/featheresp32/SD@0.0.0-alpha+sha.041f788250/

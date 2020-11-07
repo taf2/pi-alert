@@ -7,15 +7,20 @@
 	the oled display will continue to be attached and we'll have a night option since clocks suck at night they're too bright
 	we'll have the primary display be an epaper 5.65 " display with epaper, we'll dialy update the quote to inspire everyone
 	*/
-#define ENABLE_EPAPER 1
+//#define ENABLE_EPAPER 1
 #include <time.h>
 #include <SPI.h>
-#include <SD.h>
 #include <Wire.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
+
+// add ble bluetooth for easy configuration
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
 
 //#include <SPIFFS.h> // cache quote of the day so we only re-fetch 1 time per day
 
@@ -28,25 +33,37 @@
 // so we can write to epaper
 #ifdef ENABLE_EPAPER
 #undef ENABLE_GxEPD2_GFX // ensure we use adafruit
-#include <GxEPD2_BW.h>  // Include GxEPD2 library for black and white displays
+//#include <GxEPD2_BW.h>  // Include GxEPD2 library for black and white displays
 #include <GxEPD2_3C.h>  // Include GxEPD2 library for 3 color displays
 #endif
 
 
 // Include fonts from Adafruit_GFX
-#include <Fonts/FreeMono9pt7b.h>
+//#include <Fonts/FreeMono9pt7b.h>
 #include <Fonts/FreeMono12pt7b.h>
 #include <Fonts/FreeMono18pt7b.h>
-#include <Fonts/FreeMono24pt7b.h>
-#include <Fonts/FreeMonoBold9pt7b.h>
-#include <Fonts/FreeMonoBold12pt7b.h>
-#include <Fonts/FreeMonoBold18pt7b.h>
-#include <Fonts/FreeMonoBold24pt7b.h>
+//#include <Fonts/FreeMono24pt7b.h>
+//#include <Fonts/FreeMonoBold9pt7b.h>
+//#include <Fonts/FreeMonoBold12pt7b.h>
+//#include <Fonts/FreeMonoBold18pt7b.h>
+//#include <Fonts/FreeMonoBold24pt7b.h>
 //#include "Roboto_Regular64pt7b.h"
 #include "Roboto_Regular78pt7b.h"
 //#include "Roboto_Regular92pt7b.h"
 
 #include "eeprom_settings.h"
+
+#define LED_CONFIGURED 12
+#define LED_BLUE_CONFIG 13
+#define BUZZER 33
+#define MP3_PWR 27
+
+// See the following for generating UUIDs:
+// https://www.uuidgenerator.net/
+#define SERVICE_UUID           "e2f52832-2c23-4318-85cb-be11f7421999" //"6E400001-B5A3-F393-E0A9-E50E24DCCA9E" // UART service UUID
+#define CHARACTERISTIC_UUID_RX "e5de2fab-bf9b-439d-81d1-24651d8201a7" //"6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+#define CHARACTERISTIC_UUID_TX "e6f61157-5e3a-4656-a412-de8610a63d76" //"6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+
 
 #define VBATPIN A13
 
@@ -84,71 +101,112 @@
   #define BUTTON_C  5
 #endif
 
+#ifdef ENABLE_EPAPER
+static short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay=true, GxEPD2_3C<GxEPD2_565c, GxEPD2_565c::HEIGHT> *ePaperDisplay=NULL);
+#else
+static short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay=true);
+#endif
+static void disableBLE();
+static bool initWiFi(const char *ssid, const char *password);
+static bool initClockAndWifi();
+
+static volatile time_t currentSecond;
 static time_t prevSecond = 0;
 static time_t lastSecond    = 0;
 static float lastTemp    = 0;
 
-static char buf[80];
-static char buffer[1024];
+static const short OUT_BUFFER_SIZE = 512;
+static char buffer[OUT_BUFFER_SIZE];
 
-static const char *ssid = "<%= @config[:ssid] %>"; // Put your SSID here
-static const char *password = "<%= @config[:pass] %>"; // Put your PASSWORD here
-int displayTime(short needUpdate, NTPClient &tc, time_t &lastSecond, bool normalDisplay=true);
+static int last_sent_key = 0;
+static const int BLE_KEY_CONFIG_SIZE = 5;
+static const char *BLE_SET_CONFIG_KEYS[] =  {"ssid", "pass", "alrh", "alrm", "dtim"}; // no keys longer than 4
+static bool deviceConnected = false;
+static bool ConfigMode = false; //  when pressed we'll enter configuration mode
+static bool DidInitWifi = false;
+static bool SongActive = false;
+static time_t StopSongTime = 0; // the time that it was stopped
 
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP);
-Adafruit_MS8607 ms8607;
-Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
+static BLEService *pService;
+static BLEServer *pServer;
+static BLECharacteristic *pCharacteristic;
 
-EEPROMSettings settings;
+static WiFiUDP ntpUDP;
+static NTPClient timeClient(ntpUDP);
+static Adafruit_MS8607 ms8607;
+static Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
+
 #ifdef ENABLE_EPAPER
-GxEPD2_3C<GxEPD2_565c, GxEPD2_565c::HEIGHT> ePaperDisplay(GxEPD2_565c(CS_PIN, DC_PIN, RST_PIN, BUSY_PIN));
-TaskHandle_t UpdateEPaperTask;
+static SemaphoreHandle_t settingsLock;
+#endif
+static EEPROMSettings settings;
+
+#ifdef ENABLE_EPAPER
+static TaskHandle_t UpdateEPaperTask;
 // moving all ePaperDisplay operations into their own loop on a different core to keep the clock responsive
+GxEPD2_3C<GxEPD2_565c, GxEPD2_565c::HEIGHT> *ePaperDisplay = new GxEPD2_3C<GxEPD2_565c, GxEPD2_565c::HEIGHT>(GxEPD2_565c(CS_PIN, DC_PIN, RST_PIN, BUSY_PIN));
 
-void UpdateEPaper( void * parameter) {
-  NTPClient tc(ntpUDP);
-  tc.begin();
-
-	ePaperDisplay.init(115200);  // Initiate the display
-  ePaperDisplay.setRotation(0);  // Set orientation. Goes from 0, 1, 2 or 3
-  ePaperDisplay.setCursor(0,0);
-	Serial.println("Initialized epaper");
-
-  ePaperDisplay.setTextWrap(true);  // By default, long lines of text are set to automatically “wrap” back to the leftmost column.
-  ePaperDisplay.setFullWindow();  // Set full window mode, meaning is going to update the entire screen
-  ePaperDisplay.setTextColor(GxEPD_BLACK);  // Set color for text
+static void UpdateEPaper(void * parameter) {
   short needUpdate = 0;
   time_t lastSecond = 0;
-	int zoneOffset = settings.timezoneOffset();
-  tc.update();
-	tc.setTimeOffset(zoneOffset);
+	Serial.println("Initialize epaper");
+
+  try {
+  // put it on the heap to avoid blowing up the stack
+
+  if (!ePaperDisplay) {
+    Serial.println("INvalid ePaperDisplay unable to allocate crash");
+    return;
+  }
+
+  //uxTaskGetStackHighWaterMark(NULL);
+  //yield();
+
+	ePaperDisplay->init(115200);  // Initiate the display
+  ePaperDisplay->setRotation(0);  // Set orientation. Goes from 0, 1, 2 or 3
+  ePaperDisplay->setCursor(0,0);
+
+  ePaperDisplay->setTextWrap(true);  // By default, long lines of text are set to automatically “wrap” back to the leftmost column.
+  ePaperDisplay->setFullWindow();  // Set full window mode, meaning is going to update the entire screen
+  ePaperDisplay->setTextColor(GxEPD_BLACK);  // Set color for text
+	//Serial.println("Initialized epaper");
+
+  //Serial.println("Start ePaper Loop");
 
   while(true) {
-    needUpdate = displayTime(needUpdate, tc, lastSecond, false);
-    if (needUpdate == 2) {
-      Serial.println("refresh epaper");
-      //ePaperDisplay.refresh(80, 220, 400, 96);
-      ePaperDisplay.display();
-			if (settings.timezoneOffset() != zoneOffset) {
-				zoneOffset = settings.timezoneOffset();
-				tc.setTimeOffset(zoneOffset);
-			}
-    } else {
-      delay(500);
+    
+    if (DidInitWifi && !ConfigMode) {
+#ifdef ENABLE_EPAPER
+      if (xSemaphoreTake(settingsLock, (TickType_t) 10 ) == pdTRUE) {
+        needUpdate = displayTime(needUpdate, lastSecond, false, ePaperDisplay);
+        xSemaphoreGive(settingsLock);
+      } else {
+        needUpdate = 0;
+      }
+#else
+      needUpdate = displayTime(needUpdate, lastSecond, false, ePaperDisplay);
+#endif
+      if (needUpdate == 2) {
+        Serial.println("refresh epaper");
+        //ePaperDisplay.refresh(80, 220, 400, 96);
+        ePaperDisplay->display();
+      } else {
+        delay(500);
+      }
     }
-/*    if (doDisplay) {
-      ePaperDisplay.display();
-      doDisplay = false;
-    } else {
-      //delay(100);
-      yield();
+    yield();
+
+   // yield();
+  }
+
+  } catch(...) {
+    while(true) {
+      Serial.println("failed");
+      delay(1000);
     }
-    */
   }
 }
 #endif
-
 
 void displayln(const char *text) {
   display.println(text);
@@ -156,15 +214,93 @@ void displayln(const char *text) {
   display.display(); // actually display all of the above
 }
 
-void initWiFi() {
-  // text display tests
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0,0);
+class MyServerCallbacks: public BLEServerCallbacks {
+  void onConnect(BLEServer* pServer) {
+    deviceConnected = true;
+  };
+
+  void onDisconnect(BLEServer* pServer) {
+    deviceConnected = false;
+  }
+};
+
+class MyCallbacks: public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *pCharacteristic) {
+    std::string rxValue = pCharacteristic->getValue();
+
+    if (rxValue.length() > 0) {
+      Serial.println("*********");
+      Serial.print("Received Value: ");
+      // expecting key:value pairs
+      String key, value;
+      bool isKey = true;
+
+      for (int i = 0; i < rxValue.length(); i++) {
+        Serial.print(rxValue[i]);
+        if (rxValue[i] == ':') {
+          isKey = false;
+        } else {
+          if (isKey) {
+            key +=  rxValue[i];
+          } else {
+            value += rxValue[i];
+          }
+        }
+      }
+
+      Serial.println();
+      if (key.length() > 0 && key == "ssid" && value.length() > 0) {
+        Serial.println( (key + " = " + value).c_str() );
+        memcpy(settings.ssid, value.c_str(), 32);
+        settings.configured = true; 
+        settings.save();
+        if (strlen(settings.pass) > 0 && !DidInitWifi) {
+          initWiFi(settings.ssid, settings.pass);
+          // try to init wifi
+        }
+      } else if (key.length() > 0 && key == "pass" && value.length() > 0) {
+        Serial.println( ( key + " = " + value).c_str() );
+        memcpy(settings.pass, value.c_str(), 32);
+        settings.configured = true; 
+        settings.save();
+        if (strlen(settings.pass) > 0 && !DidInitWifi) {
+          initWiFi(settings.ssid, settings.pass);
+          // try to init wifi
+        }
+      } else if (key.length() > 0 && key == "alrh" && value.length() > 0) {
+        Serial.println( ( key + " = " + value).c_str() );
+        settings.hour = atoi(value.c_str());
+        StopSongTime = 0; // reset alarm stop
+        settings.save();
+        Serial.print("hour set:");
+        Serial.println(settings.hour);
+      } else if (key.length() > 0 && key == "alrm" && value.length() > 0) {
+        Serial.println( ( key + " = " + value).c_str() );
+        settings.minute = atoi(value.c_str());
+        StopSongTime = 0; // reset alarm stop
+        settings.save();
+        Serial.print("minute set:");
+        Serial.println(settings.minute);
+      }
+
+      Serial.println();
+      Serial.println("*********");
+    }
+  }
+};
+
+static MyServerCallbacks *callbacks = NULL;
+
+bool initWiFi(const char *ssid, const char *password) {
   IPAddress ip;
 
-  WiFi.begin(ssid, password);
-  snprintf(buffer, 1024, "Connecting to %s \\", ssid);
+  wl_status_t status = WiFi.begin(ssid, password);
+  if (status == WL_CONNECT_FAILED) {
+    snprintf(buffer, OUT_BUFFER_SIZE, "Failed to connect to %s \\", ssid);
+    displayln(buffer);
+    return false;
+  }
+  snprintf(buffer, OUT_BUFFER_SIZE, "Connecting to %s \\", ssid);
   displayln(buffer);
   int count = 0;
   while (WiFi.status() != WL_CONNECTED) {
@@ -176,19 +312,45 @@ void initWiFi() {
       c = '\\';
     }
     Serial.print(c);
-    snprintf(buffer, 1024, "Connecting to %s %c", ssid, c);
+    snprintf(buffer, OUT_BUFFER_SIZE, "Connecting to %s %c", ssid, c);
     display.clearDisplay();
     displayln(buffer);
     yield();
     ++count;
+    if (!digitalRead(BUTTON_A)) {
+      // user pressed A button while trying to connect this should abort all wifi
+      return false;
+    }
   }
   ip = WiFi.localIP();
   Serial.println(ip);
-  snprintf(buffer, 1024, "Connected to %s with %s\n", ssid, ip.toString().c_str());
+  snprintf(buffer, OUT_BUFFER_SIZE, "Connected to %s with %s\n", ssid, ip.toString().c_str());
   display.clearDisplay();
   displayln(buffer);
   delay(2000);
 
+  // initialize time
+  DidInitWifi = true;
+  return true;
+}
+
+void startSong() {
+  digitalWrite(MP3_PWR, HIGH); // send power to the device
+  // it takes sometime for the relay to warm up to give power to the device... we need to delay here to ensure it had time 
+  delay(1000);
+  digitalWrite(BUZZER, LOW); // play music
+  delay(100);
+  digitalWrite(BUZZER, HIGH); // play music
+  SongActive  = true;
+  StopSongTime = 0;
+}
+void stopSong(bool report=true) {
+  digitalWrite(MP3_PWR, LOW); // CUT the power
+  SongActive   = false;
+  if (report) {
+    Serial.println("stop alarm");
+    StopSongTime = currentSecond;
+  }
 }
 
 void initButtons() {
@@ -227,19 +389,139 @@ void initWeather() {
   }
 }
 
-void setup(void) {
+void enableBLE() {
+  // Create the BLE Device
+  //  
+  //WiFi.mode(WIFI_OFF);
+  //btStop(); //??
+
+  Serial.println("enableBLE");
+  if (!BLEDevice::getInitialized()) {
+    Serial.println("init start");
+    BLEDevice::init("Clock"); // Give it a name
+    Serial.println("init complete");
+
+    // Create the BLE Server
+    pServer = BLEDevice::createServer();
+    Serial.println("server created");
+    callbacks = new MyServerCallbacks();
+    pServer->setCallbacks(callbacks);
+    Serial.println("created pServer");
+
+    // Create the BLE Service
+    pService = pServer->createService(SERVICE_UUID);
+
+    Serial.println("created pService");
+    BLEDescriptor client_characteristic_configuration(BLEUUID((uint16_t)0x2902));
+
+    // Create a BLE Characteristic
+    pCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_TX,BLECharacteristic::PROPERTY_NOTIFY);
+
+    pCharacteristic->addDescriptor(new BLE2902());
+    //pCharacteristic->addDescriptor(&client_characteristic_configuration);
+
+    BLECharacteristic *pRxC = pService->createCharacteristic(CHARACTERISTIC_UUID_RX,BLECharacteristic::PROPERTY_WRITE);
+
+    // gatt.client_characteristic_configuration
+    //pRxC->addDescriptor(new BLE2902());
+    pRxC->addDescriptor(&client_characteristic_configuration);
+
+
+    pRxC->setCallbacks(new MyCallbacks());
+
+    Serial.println("start server");
+
+    // Start the service
+    pService->start();
+  }
+
+  Serial.println("start advertising");
+
+  // Start advertising
+  pServer->getAdvertising()->start();
+  Serial.println("Waiting a client connection to notify...");
+  digitalWrite(LED_BLUE_CONFIG, HIGH);
+
+  ConfigMode = true;
+}
+
+// NOTE: once ble is disabled without restarting the device i have not figured out how to get enable to work after a disable...
+void disableBLE() {
+  ConfigMode = false;
+  if (pServer) {
+    Serial.println("stop ble server");
+    pServer->getAdvertising()->stop();
+    digitalWrite(LED_BLUE_CONFIG, LOW);
+    if (digitalRead(LED_BLUE_CONFIG)) {
+      Serial.println("failed to set LED low");
+    } else {
+      Serial.println("LED should be low now");
+    }
+  }
+}
+bool initClockAndWifi() {
+  Serial.println("wifi is configuredi start connecting");
+  Serial.println(settings.ssid);
+  if (!initWiFi(settings.ssid, settings.pass)) {
+    return false;
+  }
+  initWeather(); // local device weather conditions
+  Serial.println("Wifi connected. Loading time");
+
+  // initialize time
+  timeClient.begin();
+
+//  strncpy(settings.zipcode, "<%= @config[:zipcode] %>", 6);
+//  strncpy(settings.weatherAPI, "<%= @config[:weatherAPI] %>", 33);
+	int offsetSeconds = settings.timezoneOffset();
+	Serial.print("set timezone offset:");
+	Serial.println(offsetSeconds);
+	timeClient.setTimeOffset(offsetSeconds);
+  Serial.println("offset now update");
+  timeClient.update();
+  Serial.println("called update");
+  currentSecond = timeClient.getEpochTime(); // set globally
+  Serial.println("received current second");
+
+#ifdef ENABLE_EPAPER
+  Serial.println("create the SemaphoreHandle_t");
+  settingsLock = xSemaphoreCreateMutex();
+  if (settingsLock) {
+    xTaskCreatePinnedToCore(UpdateEPaper, // Function to implement the task
+      "UpdateEPaper", // Name of the task
+      4096, //8192,  // Stack size in words
+      NULL,  // Task input parameter
+      -1,  // Priority of the task
+      &UpdateEPaperTask,  // Task handle.
+      0); // Core where the task should run
+    Serial.println("created the paper task");
+  }
+#endif
+  return true;
+}
+
+int buttonPressedCount = 0;
+void setup() {
 
   Serial.begin(115200);
   while (!Serial) delay(10);     // will pause Zero, Leonardo, etc until serial console opens
 
 	EEPROM.begin(EEPROM_SIZE);
 
+  pinMode(LED_CONFIGURED, OUTPUT);
+  pinMode(LED_BLUE_CONFIG, OUTPUT);
+  pinMode(BUZZER, OUTPUT);
+  pinMode(MP3_PWR, OUTPUT);
+  digitalWrite(BUZZER, HIGH); // ensure 
+  digitalWrite(MP3_PWR, LOW);
+  digitalWrite(LED_BLUE_CONFIG, LOW);
 
-	// now init the ePaper
-#ifdef ENABLE_EPAPER
-#endif
 
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // Address 0x3C for 128x32
+  // text display tests
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0,0);
 
   display.display();
   delay(1000);
@@ -254,56 +536,44 @@ void setup(void) {
 //
   initButtons();
 
-  initWiFi();
-
-  initWeather(); // local device weather conditions
-
-  Serial.println("loading time");
-
-  // initialize time
-  timeClient.begin();
-
-  settings.load();
-  strncpy(settings.zipcode, "<%= @config[:zipcode] %>", 6);
-  strncpy(settings.weatherAPI, "<%= @config[:weatherAPI] %>", 33);
-	int offsetSeconds = settings.timezoneOffset();
-	Serial.print("set timezone offset:");
-	Serial.println(offsetSeconds);
-	timeClient.setTimeOffset(offsetSeconds);
-  timeClient.update();
- 
-#ifdef ENABLE_EPAPER
-  // do one initial display
-  //ePaperDisplay.fillScreen(GxEPD_WHITE);  // Clear previous graphics to start over to print new things.
-  //ePaperDisplay.display();
-
-/*  ePaperDisplay.fillScreen(GxEPD_WHITE);  // Clear previous graphics to start over to print new things.
-  
-  // Print text - "Hello World!":
-  ePaperDisplay.setTextColor(GxEPD_BLACK);  // Set color for text
-  ePaperDisplay.setFont(&FreeMono18pt7b);  // Set font
-  Serial.print("calling display\r\n ");
-  ePaperDisplay.display();
-  Serial.print("display\r\n ");
-  delay(2000);
+    //enableBLE(); // initialize the library early
+/*  if (settings.load() && settings.good()) {
+    if (!initWiFi(settings.ssid, settings.pass)) {
+      return;
+    }
+    DidInitWifi = false;
+    enableBLE();
+  }
   */
-
-  xTaskCreatePinnedToCore(UpdateEPaper, /* Function to implement the task */
-    "UpdateEPaper", /* Name of the task */
-    10000,  /* Stack size in words */
-    NULL,  /* Task input parameter */
-    -1,  /* Priority of the task */
-    &UpdateEPaperTask,  /* Task handle. */
-    1); /* Core where the task should run */
-#endif
+    
+  if (settings.load() && settings.good()) {
+    //enableBLE(); // initialize the library early
+    //delay(2000);
+    //disableBLE(); // turn it off unless needed?
+    //delay(2000);
+    Serial.println("config seems good so we're gonna try to configure wifi");
+    initClockAndWifi();
+  } else {
+    Serial.println("settings not good yet turn on bluetooth so we can get user settings");
+    display.clearDisplay();
+    displayln("Enable BLE");
+    enableBLE();
+    display.clearDisplay();
+    displayln("Connect to Clock via Bluetooh to configure WiFI");
+  }
 
 }
 
 // returns 0 no updates, returns 1 only lcd updates, returns 2 both lcd and epaper updates
 // normalDisplay is so we can run this in the main loop for an lcd but also in an epaper loop
-int displayTime(short needUpdate, NTPClient &tc, time_t &lastSecond, bool normalDisplay) {
-  
-  time_t rawtime = tc.getEpochTime();
+//int displayTime(short needUpdate, NTPClient &tc, time_t &lastSecond, bool normalDisplay) {
+#ifdef ENABLE_EPAPER
+short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay, GxEPD2_3C<GxEPD2_565c, GxEPD2_565c::HEIGHT> *ePaperDisplay) {
+#else
+short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay) {
+#endif
+  char buf[80];
+  time_t rawtime = currentSecond;//tc.getEpochTime();
   int rawMinute = (int)(rawtime/60);
   int lastMinute = (int)(lastSecond/60);
   if (needUpdate ||  rawMinute > lastMinute) {
@@ -311,36 +581,47 @@ int displayTime(short needUpdate, NTPClient &tc, time_t &lastSecond, bool normal
     //snprintf(buffer, 1024,
     //         "rawtime: %ld, lastSecond: %ld, rm: %d lm: %d\n", rawtime, lastSecond, rawMinute, lastMinute);
     //Serial.print(buffer);
-    tc.update(); // only update client every 60 seconds avoids extra network ?
     struct tm  ts;
     ts = *localtime(&rawtime);
     lastSecond = rawtime;
     strftime(buf, sizeof(buf), "%l:%M %p\n", &ts);
+#ifdef ENABLE_EPAPER
+    if (normalDisplay && !ePaperDisplay) {
+#else
     if (normalDisplay) {
+#endif
       display.setTextSize(2);
       display.setTextColor(SSD1306_WHITE);
       display.print(buf);
     }
-    if (epaper_update) {
 #ifdef ENABLE_EPAPER
+    if (epaper_update && ePaperDisplay) {
       //ePaperDisplay.getTextBounds(buf, 0, 32, &x1, &y1, &w, &h);
       //ePaperDisplay.fillRect(0, 32, w, h, GxEPD_WHITE);
-      ePaperDisplay.fillScreen(GxEPD_WHITE);  // Clear previous graphics to start over to print new things.
+      ePaperDisplay->fillScreen(GxEPD_WHITE);  // Clear previous graphics to start over to print new things.
       //ePaperDisplay.setPartialWindow(0, 0, ePaperDisplay.width(), ePaperDisplay.height());
-      ePaperDisplay.setFont(&Roboto_Regular78pt7b);  // Set font
-      ePaperDisplay.setCursor(80, 220);  // Set the position to start printing text (x,y)
+      ePaperDisplay->setFont(&Roboto_Regular78pt7b);  // Set font
+      ePaperDisplay->setCursor(80, 220);  // Set the position to start printing text (x,y)
       strftime(buf, sizeof(buf), "%l:%M", &ts);
-      ePaperDisplay.println(buf);  // Print some text
-#endif
+      ePaperDisplay->println(buf);  // Print some text
     }
+#endif
     strftime(buf, sizeof(buf), "%a %b, %d\n", &ts);
+#ifdef ENABLE_EPAPER
+    if (normalDisplay && !ePaperDisplay) {
+#else
     if (normalDisplay) {
+#endif
       display.setCursor(0,18);
       display.setTextSize(1);
       display.setTextColor(SSD1306_WHITE);
       display.print(buf);
     }
+#ifdef ENABLE_EPAPER
+    if (epaper_update && ePaperDisplay) {
+#else
     if (epaper_update) {
+#endif
 #ifdef ENABLE_EPAPER
       /*int16_t  x1, y1;
       uint16_t w, h;
@@ -348,28 +629,32 @@ int displayTime(short needUpdate, NTPClient &tc, time_t &lastSecond, bool normal
       ePaperDisplay.getTextBounds(buf, 0, 32, &x1, &y1, &w, &h);
       ePaperDisplay.fillRect(0, 32, w, h, GxEPD_WHITE);
       */
-      ePaperDisplay.setCursor(25, 50);  // Set the position to start printing text (x,y)
-      ePaperDisplay.setFont(&FreeMono18pt7b);  // Set font
-      ePaperDisplay.println(buf);  // print the date
-      yield();
+      ePaperDisplay->setCursor(25, 50);  // Set the position to start printing text (x,y)
+      ePaperDisplay->setFont(&FreeMono18pt7b);  // Set font
+      ePaperDisplay->println(buf);  // print the date
+      //yield();
       // print a quote if we have one
       if (strlen(settings.quote) > 0) {
-        ePaperDisplay.setCursor(0, 290);  // Set the position to start printing text (x,y)
-        ePaperDisplay.setFont(&FreeMono12pt7b);  // Set font
-        ePaperDisplay.println(settings.quote);  // print the quote
-        ePaperDisplay.print("by: ");  // print the author
-        ePaperDisplay.println(settings.author);  // print the author
+        ePaperDisplay->setCursor(0, 290);  // Set the position to start printing text (x,y)
+        ePaperDisplay->setFont(&FreeMono12pt7b);  // Set font
+        ePaperDisplay->println(settings.quote);  // print the quote
+        ePaperDisplay->print("by: ");  // print the author
+        ePaperDisplay->println(settings.author);  // print the author
       }
       // display temperature
-      ePaperDisplay.setCursor(480, 50);
-      ePaperDisplay.setFont(&FreeMono18pt7b);
-      ePaperDisplay.print((int)roundf(settings.temp));
-      ePaperDisplay.println("F");
+      ePaperDisplay->setCursor(480, 50);
+      ePaperDisplay->setFont(&FreeMono18pt7b);
+      ePaperDisplay->print((int)roundf(settings.temp));
+      ePaperDisplay->println("F");
 #endif
       return 2;
     }
     return 1;
+#ifdef ENABLE_EPAPER
+  } else if (normalDisplay && !ePaperDisplay) {
+#else
   } else if (normalDisplay) {
+#endif
     struct tm  ts;
     ts = *localtime(&rawtime);
     lastSecond = rawtime;
@@ -406,9 +691,17 @@ void displayClock() {
   display.clearDisplay();
   display.setCursor(0,0);
   display.setTextColor(SSD1306_WHITE);
-  needUpdate = displayTime(needUpdate, timeClient, lastSecond);
+#ifdef ENABLE_EPAPER
+  if (xSemaphoreTake(settingsLock, (TickType_t) 10 ) == pdTRUE) {
+    needUpdate = displayTime(needUpdate, lastSecond);
+  } else {
+    needUpdate  = 0;
+  }
+#else
+  needUpdate = displayTime(needUpdate, lastSecond);
+#endif
   if (needUpdate) {
-    snprintf(buffer, 1024,
+    snprintf(buffer, OUT_BUFFER_SIZE,
              "%.0f%s, %.0f %%rH, %.1fV\n",
              temperature, (settings.fahrenheit ? "F" : "C"), humidity, battery);
     display.setTextSize(1);
@@ -429,6 +722,37 @@ void displayClock() {
   }
 }
 
+void checkAlarm() {
+  //const int    tzOffset = -5 * 60 * 60;
+  const time_t epoch = currentSecond;
+  const time_t offsetTime = epoch;// + tzOffset;
+  const int    currentDay = offsetTime / 24 / 60 / 60; // convert seconds to the day
+  const short hour = settings.hour;
+  const short minute = settings.minute;
+
+  const int startOfDayInSeconds = (currentDay * 24 * 60 * 60); // this gets us the starting second of the current day
+  const int startTimeToAlarm = startOfDayInSeconds + (hour*60*60) + (minute*60);
+  const int endTimeToAlarm = startOfDayInSeconds + (hour*60*60) + ((minute+2)*60); // 2 minutes of padding
+
+  //snprintf(buffer, OUT_BUFFER_SIZE, "tz: %d, epoch: %ld (%ld), startTimeToAlarm: %d, endTimeToAlarm: %d\n", tzOffset, epoch, offsetTime, startTimeToAlarm, endTimeToAlarm);
+  //Serial.println(buffer);
+
+  if (offsetTime > startTimeToAlarm && offsetTime < endTimeToAlarm) {
+    if (!SongActive) {
+      Serial.println("sound the alarm");
+      if (StopSongTime < startTimeToAlarm) {
+        startSong();
+      } else {
+        Serial.println("you stopped it");
+        Serial.println(StopSongTime);
+        Serial.println(startTimeToAlarm);
+      }
+    }
+  } else {
+    stopSong(false);
+  }
+}
+
 void loop() {
   short button_delay = 0;
   short button_a_pressed = 0;
@@ -446,59 +770,81 @@ void loop() {
   if (!digitalRead(BUTTON_C)) {
     button_c_pressed = 1;
   }
+  if (button_a_pressed) {
+    Serial.println("Button A pressed enable ble");
+    button_delay = 1;
+    if (ConfigMode) {
+      ConfigMode  = false;
+    } else {
+      ConfigMode  = true;
+    }
 
-  /*if (button_a_pressed) {
-    Serial.println("Select prev timezone");
-    settings.prevZone(display, timeClient);
+    if (ConfigMode) {
+      digitalWrite(LED_BLUE_CONFIG, HIGH);
+      digitalWrite(LED_CONFIGURED, LOW);
+      enableBLE();
+    } else {
+      digitalWrite(LED_BLUE_CONFIG, LOW);
+      disableBLE();
+    }
+
+  }
+  if (button_b_pressed) {
+    Serial.println("pressed B");
+    if (SongActive) {
+      stopSong();
+    } else {
+      startSong();
+    }
     button_delay = 1;
   }
 
-  if (button_b_pressed) {
-    Serial.println("Select next timezone");
-    settings.nextZone(display, timeClient);
-    button_delay = 1;
-  }*/
-
   if (button_c_pressed) {
-    /*if (settings.fahrenheit) {
-      Serial.println("Modify to fahrenheit celsius");
-      settings.fahrenheit = false;
-    } else {
-      Serial.println("Modify celsius to fahrenheit");
-      settings.fahrenheit = true;
-    }*/
-    //settings.save();
     Serial.println("pressed C");
     settings.fetchQuote(timeClient);
     settings.fetchWeather(timeClient);
     button_delay = 1;
   }
-	time_t rawTime = timeClient.getEpochTime();
-  int rawMinute = (int)(rawTime/60);
-  int lastMinute = (int)(prevSecond/60);
-	if (rawMinute > lastMinute) {
-		int rawHour = rawMinute/60;
-		int lastHour = lastMinute/60;
-		snprintf(buffer, 1024, "rawTime: %lu, prevSecond: %lu, rawMinute: %d, lastMinute: %d, rawHour: %d, lastHour: %d\n", rawTime, prevSecond, rawMinute, lastMinute, rawHour, lastHour);
-		Serial.print(buffer);
 
-		if (lastHour < rawHour) {
-			Serial.println("it's been over an hour fetching updated data");
-			settings.fetchQuote(timeClient);
-			settings.fetchWeather(timeClient);
-		}
-	}
-	prevSecond = rawTime;
+  if (DidInitWifi) {
+    currentSecond = timeClient.getEpochTime(); // set globally
+
+    //Serial.println("try to get time");
+    int rawMinute = (int)(currentSecond/60);
+    int lastMinute = (int)(prevSecond/60);
+    if (rawMinute > lastMinute) {
+      int rawHour = rawMinute/60;
+      int lastHour = lastMinute/60;
+      //snprintf(buffer, OUT_BUFFER_SIZE, "rawTime: %lu, prevSecond: %lu, rawMinute: %d, lastMinute: %d, rawHour: %d, lastHour: %d\n", rawTime, prevSecond, rawMinute, lastMinute, rawHour, lastHour);
+      //Serial.print(buffer);
+
+      if (lastHour < rawHour) {
+        Serial.println("it's been over an hour fetching updated data");
+        settings.fetchQuote(timeClient);
+        settings.fetchWeather(timeClient);
+      }
+    }
+    prevSecond = currentSecond;
+    checkAlarm();
+  }
 
   if (button_a_pressed && button_b_pressed) {
-    display.clearDisplay();
     displayln("Factory Reset...");
-    settings.timezoneIndex = 28; // EDT
-    settings.fahrenheit = true;
+    display.clearDisplay();
+    memset(settings.ssid, 0, 32);
+    memset(settings.pass, 0, 32);
+    memset(settings.quote, 0, 256);
+    memset(settings.author, 0, 32);
+    memset(settings.zipcode, 0, 8);
+    memset(settings.weatherAPI, 0, 34);
+    settings.temp = 0;
+    settings.feels_like = 0;
+    settings.hour = 0;
+    settings.minute = 0;
     settings.save();
 
     delay(5000);
-  } else {
+  } else if (DidInitWifi) {
     displayClock();
   }
 
@@ -506,4 +852,54 @@ void loop() {
     delay(500);
   }
 
+  if (ConfigMode && deviceConnected) {
+    const time_t epoch = timeClient.getEpochTime();
+    // send key:value pairs
+    // for each key and value we support for writing to our ble device
+    const char *key = BLE_SET_CONFIG_KEYS[last_sent_key];
+    char txBuffer[4+1+32+1]; // 4 bytes for key name, 1 byte for :, and 32 bytes for the value and 1 byte for a null
+    switch (last_sent_key) {
+    case 0: // "ssid"
+      snprintf(txBuffer, sizeof(txBuffer), "%s:%s", key, settings.ssid);
+      break;
+    case 1: // "pass"
+      snprintf(txBuffer, sizeof(txBuffer), "%s:%s", key, settings.pass);
+      break;
+    case 2: // "alrh" -> a 24 hour when the alarm should sound
+      snprintf(txBuffer, sizeof(txBuffer), "%s:%d", key, settings.hour);
+      break;
+    case 3: // "alrm" -> the minute that the alarm should sound within an hour
+      snprintf(txBuffer, sizeof(txBuffer), "%s:%d", key, settings.minute);
+      break;
+    case 4: // "dtim" -> device time a read only option so we can see what time the device has stored
+      snprintf(txBuffer, sizeof(txBuffer), "%s:%lu", key, epoch);
+      break;
+    default:
+      Serial.println("unknown key index");
+      last_sent_key = 0;
+      // overflow
+      return;
+    }
+
+    last_sent_key++;
+    if (last_sent_key >= BLE_KEY_CONFIG_SIZE) {
+      last_sent_key = 0; // loop back around
+    }
+
+    // Let's convert the value to a char array:
+    //dtostrf(txValue, 1, 2, txString); // float_val, min_width, digits_after_decimal, char_buffer
+
+//    pCharacteristic->setValue(&txValue, 1); // To send the integer value
+//    pCharacteristic->setValue("Hello!"); // Sending a test message
+    pCharacteristic->setValue(txBuffer);
+
+    pCharacteristic->notify(); // Send the value to the app!
+    /*Serial.print("*** Sent Value: ");
+    Serial.print(txBuffer);
+    Serial.println(" ***");
+    */
+
+  }
+
+  delay(10);
 }
