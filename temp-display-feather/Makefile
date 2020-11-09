@@ -2,7 +2,7 @@ ROOT_DIR:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 
 all: detector
 upload: detector
-	pio run -j 2 --target upload && sleep 1;  pio device monitor
+	pio run -j 2 --target upload --upload-port /dev/cu.SLAB_USBtoUART && sleep 1;  pio device monitor -p /dev/cu.SLAB_USBtoUART
 
 detector: targets
 	pio run
@@ -11,7 +11,7 @@ targets: srcfiles/main.cpp
 	ruby build.rb main.cpp
 
 monitor:
-	pio device monitor
+	pio device monitor -p /dev/cu.SLAB_USBtoUART
 
 configure:
 	pio lib install "Arduino_CRC32"
@@ -27,7 +27,7 @@ configure:
 	#pio lib install "arduino-libraries/SD"
 #	pio lib install "adafruit/Adafruit VS1053 Library"
 	#pio lib uninstall SD@0.0.0-alpha+sha.041f788250
-	pio lib uninstall "arduino-libraries/SD"
+#	pio lib uninstall "arduino-libraries/SD"
 	#rm -rf .pio/libdeps/featheresp32/SD@0.0.0-alpha+sha.041f788250/
 
 

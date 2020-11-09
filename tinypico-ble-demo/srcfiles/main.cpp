@@ -307,7 +307,7 @@ void loop() {
   } else {
     buttonPressedCount  = 0;
   }
-  if (DidInitWifi) { 
+  if (DidInitWifi) {
     const int    tzOffset = -4 * 60 * 60;
     const time_t epoch = timeClient.getEpochTime();
     const time_t offsetTime = epoch + tzOffset;

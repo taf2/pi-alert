@@ -15,6 +15,7 @@
 #include <HTTPClient.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
+#include <ArduinoJson.h>
 
 // add ble bluetooth for easy configuration
 #include <BLEDevice.h>
@@ -110,7 +111,7 @@ static void disableBLE();
 static bool initWiFi(const char *ssid, const char *password);
 static bool initClockAndWifi();
 
-static volatile time_t currentSecond;
+static volatile time_t currentSecond = 0;
 static time_t prevSecond = 0;
 static time_t lastSecond    = 0;
 static float lastTemp    = 0;
@@ -536,6 +537,8 @@ void setup() {
 //
   initButtons();
 
+  Serial1.begin(9600);
+
     //enableBLE(); // initialize the library early
 /*  if (settings.load() && settings.good()) {
     if (!initWiFi(settings.ssid, settings.pass)) {
@@ -585,6 +588,16 @@ short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay) {
     ts = *localtime(&rawtime);
     lastSecond = rawtime;
     strftime(buf, sizeof(buf), "%l:%M %p\n", &ts);
+
+    //  the epaper display is too big for us to also include on this board so we'll write to serial here instead
+    Serial.println("write to Serial1");
+    StaticJsonDocument<1024> doc;
+    doc["time"] = currentSecond;
+    doc["temp"] = settings.temp;
+    doc["quote"] = settings.quote;
+    doc["author"] = settings.author;
+    serializeJson(doc, Serial1);
+
 #ifdef ENABLE_EPAPER
     if (normalDisplay && !ePaperDisplay) {
 #else
@@ -646,6 +659,7 @@ short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay) {
       ePaperDisplay->setFont(&FreeMono18pt7b);
       ePaperDisplay->print((int)roundf(settings.temp));
       ePaperDisplay->println("F");
+#else
 #endif
       return 2;
     }
@@ -724,6 +738,8 @@ void displayClock() {
 
 void checkAlarm() {
   //const int    tzOffset = -5 * 60 * 60;
+  currentSecond = timeClient.getEpochTime(); // set globally
+  const int offsetSeconds = settings.timezoneOffset();
   const time_t epoch = currentSecond;
   const time_t offsetTime = epoch;// + tzOffset;
   const int    currentDay = offsetTime / 24 / 60 / 60; // convert seconds to the day
@@ -732,10 +748,10 @@ void checkAlarm() {
 
   const int startOfDayInSeconds = (currentDay * 24 * 60 * 60); // this gets us the starting second of the current day
   const int startTimeToAlarm = startOfDayInSeconds + (hour*60*60) + (minute*60);
-  const int endTimeToAlarm = startOfDayInSeconds + (hour*60*60) + ((minute+2)*60); // 2 minutes of padding
+  const int endTimeToAlarm = startOfDayInSeconds + (hour*60*60) + ((minute+4)*60); // 4 minutes of padding
 
-  //snprintf(buffer, OUT_BUFFER_SIZE, "tz: %d, epoch: %ld (%ld), startTimeToAlarm: %d, endTimeToAlarm: %d\n", tzOffset, epoch, offsetTime, startTimeToAlarm, endTimeToAlarm);
-  //Serial.println(buffer);
+  //snprintf(buffer, OUT_BUFFER_SIZE, "epoch: %ld (%ld), %d, startTimeToAlarm: %d, endTimeToAlarm: %d\n", epoch, offsetTime, offsetSeconds, startTimeToAlarm, endTimeToAlarm);
+//  Serial.println(buffer);
 
   if (offsetTime > startTimeToAlarm && offsetTime < endTimeToAlarm) {
     if (!SongActive) {
@@ -807,6 +823,13 @@ void loop() {
   }
 
   if (DidInitWifi) {
+    int offsetSeconds = settings.timezoneOffset();
+//    Serial.print("set timezone offset:");
+//    Serial.println(offsetSeconds);
+    timeClient.setTimeOffset(offsetSeconds);
+    //Serial.println("offset now update");
+    timeClient.update();
+    //Serial.println("called update");
     currentSecond = timeClient.getEpochTime(); // set globally
 
     //Serial.println("try to get time");
@@ -853,7 +876,6 @@ void loop() {
   }
 
   if (ConfigMode && deviceConnected) {
-    const time_t epoch = timeClient.getEpochTime();
     // send key:value pairs
     // for each key and value we support for writing to our ble device
     const char *key = BLE_SET_CONFIG_KEYS[last_sent_key];
@@ -872,7 +894,7 @@ void loop() {
       snprintf(txBuffer, sizeof(txBuffer), "%s:%d", key, settings.minute);
       break;
     case 4: // "dtim" -> device time a read only option so we can see what time the device has stored
-      snprintf(txBuffer, sizeof(txBuffer), "%s:%lu", key, epoch);
+      snprintf(txBuffer, sizeof(txBuffer), "%s:%lu", key, currentSecond);
       break;
     default:
       Serial.println("unknown key index");

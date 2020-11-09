@@ -2,6 +2,7 @@ ROOT_DIR:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 
 all: epaper
 upload: epaper
+#	pio run -j 2 --target upload --upload-port /dev/cu.usbmodem14201 && sleep 3;  pio device monitor -p /dev/cu.usbmodem14201
 	pio run -j 2 --target upload && sleep 3;  pio device monitor
 
 epaper: targets
@@ -17,6 +18,8 @@ configure:
 	pio lib install "GxEPD2"
 	pio lib install "adafruit/Adafruit BusIO"
 	pio lib install "adafruit/Adafruit GFX Library"
+	pio lib install "bblanchon/ArduinoJson"
+	pio lib install "Adafruit DotStar"
 
 clean:
 	pio run --target clean

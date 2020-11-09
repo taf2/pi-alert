@@ -18,10 +18,11 @@
 #include <SPI.h>
 
 #define NUMPIXELS 1
-#define DATAPIN 7
-#define CLOCKPIN 8
+#define DATAPIN    8
+#define CLOCKPIN   6
 
-Adafruit_DotStar strip = Adafruit_DotStar(NUMPIXELS, DATAPIN, CLOCKPIN, DOTSTAR_BGR);
+Adafruit_DotStar strip(NUMPIXELS, DATAPIN, CLOCKPIN, DOTSTAR_BRG);
+
 
 #define RELAY 4 // controls power to the raspberry pi
 #define VLED 3 // external LED to indicate the raspberry pi is being given power
