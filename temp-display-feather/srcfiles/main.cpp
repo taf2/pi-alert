@@ -74,6 +74,7 @@
 #define DC_PIN          A1 // must be output capable
 #define RST_PIN         A0 // must be output capable and is an INPUT_PULLUP
 #define BUSY_PIN        A2 // must be input capable
+#define USER_BUTTON_PIN 21 // external user interface button to toggle on / off alarm
 
 // OLED FeatherWing buttons map to different pins depending on board:
 #if defined(ESP8266)
@@ -120,8 +121,8 @@ static const short OUT_BUFFER_SIZE = 512;
 static char buffer[OUT_BUFFER_SIZE];
 
 static int last_sent_key = 0;
-static const int BLE_KEY_CONFIG_SIZE = 5;
-static const char *BLE_SET_CONFIG_KEYS[] =  {"ssid", "pass", "alrh", "alrm", "dtim"}; // no keys longer than 4
+static const int BLE_KEY_CONFIG_SIZE = 7;
+static const char *BLE_SET_CONFIG_KEYS[] =  {"ssid", "pass", "alrh", "alrm", "dtim", "zip", "api"}; // no keys longer than 4
 static bool deviceConnected = false;
 static bool ConfigMode = false; //  when pressed we'll enter configuration mode
 static bool DidInitWifi = false;
@@ -282,6 +283,16 @@ class MyCallbacks: public BLECharacteristicCallbacks {
         settings.save();
         Serial.print("minute set:");
         Serial.println(settings.minute);
+      } else if (key.length() > 0 && key == "zip" && value.length() > 0 && value.length() < 6) {
+        Serial.println( ( key + " = " + value).c_str() );
+        memcpy(settings.zipcode, value.c_str(), 8);
+        settings.configured = true; 
+        settings.save();
+      } else if (key.length() > 0 && key == "api" && value.length() > 0) {
+        Serial.println( ( key + " = " + value).c_str() );
+        memcpy(settings.weatherAPI, value.c_str(), 34);
+        settings.configured = true; 
+        settings.save();
       }
 
       Serial.println();
@@ -361,6 +372,9 @@ void initButtons() {
   digitalWrite(BUTTON_C, HIGH);
   digitalWrite(BUTTON_B, HIGH);
   digitalWrite(BUTTON_A, HIGH);
+
+  pinMode(USER_BUTTON_PIN, INPUT);
+  digitalWrite(USER_BUTTON_PIN, LOW);
 }
 
 void initWeather() {
@@ -769,11 +783,39 @@ void checkAlarm() {
   }
 }
 
+int last_button_pressed = 0;
+
 void loop() {
   short button_delay = 0;
   short button_a_pressed = 0;
   short button_b_pressed = 0;
   short button_c_pressed = 0;
+
+  if (digitalRead(USER_BUTTON_PIN)) {
+    button_b_pressed = 1;
+    Serial.println("user button pressed");
+    last_button_pressed++;
+  } else {
+    last_button_pressed = 0;
+  }
+
+  if (last_button_pressed > 10) { // 500 * 10 == 5 seconds
+    Serial.println("user pressed a long 10 seconds");
+    button_a_pressed = 1; // as if configure toggled on
+  }
+  if (last_button_pressed > 40) { // 500 * 40 == 20 seconds (force fetch new quote)
+    Serial.println("force fetch");
+    button_a_pressed = 0; // toggle off
+    button_c_pressed = 1; // fetch 
+  }
+
+  if (last_button_pressed > 80) { // 500 * 80 == 40 seconds (factory reset)
+    Serial.println("user factory reset");
+    button_a_pressed = 1;
+    button_b_pressed = 1;
+    button_c_pressed = 0;
+  }
+
 
   if (!digitalRead(BUTTON_A)) {
     button_a_pressed  = 1;
@@ -786,6 +828,7 @@ void loop() {
   if (!digitalRead(BUTTON_C)) {
     button_c_pressed = 1;
   }
+
   if (button_a_pressed) {
     Serial.println("Button A pressed enable ble");
     button_delay = 1;
@@ -807,11 +850,11 @@ void loop() {
   }
   if (button_b_pressed) {
     Serial.println("pressed B");
-    if (SongActive) {
-      stopSong();
-    } else {
-      startSong();
-    }
+    //if (SongActive) {
+    stopSong();
+//    } else {
+//      startSong();
+//    }
     button_delay = 1;
   }
 
@@ -895,6 +938,12 @@ void loop() {
       break;
     case 4: // "dtim" -> device time a read only option so we can see what time the device has stored
       snprintf(txBuffer, sizeof(txBuffer), "%s:%lu", key, currentSecond);
+      break;
+    case 5: // zip
+      snprintf(txBuffer, sizeof(txBuffer), "%s:%s", key, settings.zipcode);
+      break;
+    case 6: // api
+      snprintf(txBuffer, sizeof(txBuffer), "%s:%s", key, settings.weatherAPI);
       break;
     default:
       Serial.println("unknown key index");
