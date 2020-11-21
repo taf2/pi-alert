@@ -41,6 +41,8 @@
 GxEPD2_3C<GxEPD2_565c, GxEPD2_565c::HEIGHT> ePaperDisplay(GxEPD2_565c(/*CS=10*/ CS_PIN, /*DC=*/ DC_PIN, /*RST=*/ RST_PIN, /*BUSY=*/ BUSY_PIN)); // GDEW075Z08 800x480
 //#endif
 time_t lastSecond;
+const unsigned short MaxTextWidth = 528; // max length that we want to allow a line to draw
+const unsigned short MaxChars = 38; // we computed 38 characters was 528 length line and that seems good
 
 // returns 0 no updates, returns 1 only lcd updates, returns 2 both lcd and epaper updates
 // normalDisplay is so we can run this in the main loop for an lcd but also in an epaper loop
@@ -70,7 +72,7 @@ short displayTime(short needUpdate, time_t currentSecond, const char *quote, con
       ePaperDisplay.fillScreen(GxEPD_WHITE);  // Clear previous graphics to start over to print new things.
       //ePaperDisplay.setPartialWindow(0, 0, ePaperDisplay.width(), ePaperDisplay.height());
       ePaperDisplay.setFont(&Roboto_Regular78pt7b);  // Set font
-      ePaperDisplay.setCursor(80, 220);  // Set the position to start printing text (x,y)
+      ePaperDisplay.setCursor(100, 220);  // Set the position to start printing text (x,y)
       strftime(buf, sizeof(buf), "%l:%M", &ts);
       ePaperDisplay.println(buf);  // Print some text
     }
@@ -90,10 +92,59 @@ short displayTime(short needUpdate, time_t currentSecond, const char *quote, con
       //yield();
       // print a quote if we have one
       if (strlen(quote) > 0) {
-        ePaperDisplay.setCursor(0, 290);  // Set the position to start printing text (x,y)
+        ePaperDisplay.setCursor(25, 290);  // Set the position to start printing text (x,y)
         ePaperDisplay.setFont(&FreeMono12pt7b);  // Set font
-        ePaperDisplay.println(quote);  // print the quote
-        ePaperDisplay.print("by: ");  // print the author
+        {
+          //int16_t x1, y1;
+          //uint16_t w, h;
+          //ePaperDisplay.getTextBounds("The very essence of leadership is that", 25, 290, &x1, &y1, &w, &h);
+          /*Serial.println("bounding box for a max length line:");
+          Serial.println(x1);
+          Serial.println(y1);
+          Serial.println(w);
+          Serial.println(h);
+          */
+          char *outputQuote = (char*)quote;
+          char outputBuffer[40];
+          while (strlen(outputQuote) > MaxChars) {
+            memcpy(outputBuffer, outputQuote, MaxChars);
+            outputBuffer[MaxChars] = '\0';
+            if (outputQuote[0] == ' ') {
+              ePaperDisplay.setCursor(15, ePaperDisplay.getCursorY());  // Set the position to start printing text (x,y)
+            } else {
+              ePaperDisplay.setCursor(25, ePaperDisplay.getCursorY());  // Set the position to start printing text (x,y)
+            }
+            ePaperDisplay.println(outputBuffer);  // print out what ever is left over
+            outputQuote += MaxChars; // move the pointer to max chars
+          }
+          if (strlen(outputQuote)) {
+            if (outputQuote[0] == ' ') {
+              ePaperDisplay.setCursor(15, ePaperDisplay.getCursorY());  // Set the position to start printing text (x,y)
+            } else {
+              ePaperDisplay.setCursor(25, ePaperDisplay.getCursorY());  // Set the position to start printing text (x,y)
+            }
+            ePaperDisplay.println(outputQuote);  // print out what ever is left over
+          }
+          /*do {
+            ePaperDisplay.getTextBounds(quote, 25, 290, &x1, &y1, &w, &h);
+            if (w > 528) {
+                
+            }
+          } while (w > 528);
+          */
+
+          /*
+           *
+            x1 -> 27
+            y1 -> 276
+            w -> 528
+            h -> 19
+           */
+          //ePaperDisplay.println(quote);  // print the quote
+        }
+        //ePaperDisplay.print("by: ");  // print the author
+        //ePaperDisplay.println("");  // print the author
+        ePaperDisplay.setCursor(50, ePaperDisplay.getCursorY()+19);  // Set the position to start printing text (x,y)
         ePaperDisplay.println(author);  // print the author
         Serial.print("update epaper with quote & author: ");
         Serial.println(quote);
@@ -142,7 +193,7 @@ void setup() {
   delay(2000);
   Serial.print("display cleared\r\n ");
   
-  ePaperDisplay.setRotation(0);  // Set orientation. Goes from 0, 1, 2 or 3
+  ePaperDisplay.setRotation(2);  // Set orientation. Goes from 0, 1, 2 or 3
   ePaperDisplay.setCursor(0,0);
   
   ePaperDisplay.setTextWrap(true);  // By default, long lines of text are set to automatically “wrap” back to the leftmost column.
