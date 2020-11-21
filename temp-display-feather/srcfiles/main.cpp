@@ -937,7 +937,7 @@ void loop() {
       snprintf(txBuffer, sizeof(txBuffer), "%s:%d", key, settings.minute);
       break;
     case 4: // "dtim" -> device time a read only option so we can see what time the device has stored
-      snprintf(txBuffer, sizeof(txBuffer), "%s:%lu", key, currentSecond);
+      snprintf(txBuffer, sizeof(txBuffer), "%s:%lu", key, currentSecond+settings.timezoneOffset());
       break;
     case 5: // zip
       snprintf(txBuffer, sizeof(txBuffer), "%s:%s", key, settings.zipcode);
