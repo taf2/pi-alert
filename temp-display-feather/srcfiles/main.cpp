@@ -8,6 +8,7 @@
 	we'll have the primary display be an epaper 5.65 " display with epaper, we'll dialy update the quote to inspire everyone
 	*/
 //#define ENABLE_EPAPER 1
+// #define ENABLE_DISPLAY 1
 #include <time.h>
 #include <SPI.h>
 #include <Wire.h>
@@ -25,8 +26,8 @@
 
 //#include <SPIFFS.h> // cache quote of the day so we only re-fetch 1 time per day
 
-#include <Adafruit_MS8607.h>
-#include <Adafruit_Sensor.h>
+//#include <Adafruit_MS8607.h>
+//#include <Adafruit_Sensor.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
@@ -135,8 +136,10 @@ static BLECharacteristic *pCharacteristic;
 
 static WiFiUDP ntpUDP;
 static NTPClient timeClient(ntpUDP);
-static Adafruit_MS8607 ms8607;
+//static Adafruit_MS8607 ms8607;
+#ifdef ENABLE_DISPLAY 
 static Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
+#endif
 
 #ifdef ENABLE_EPAPER
 static SemaphoreHandle_t settingsLock;
@@ -211,9 +214,11 @@ static void UpdateEPaper(void * parameter) {
 #endif
 
 void displayln(const char *text) {
+#ifdef ENABLE_DISPLAY 
   display.println(text);
   display.setCursor(0,0);
   display.display(); // actually display all of the above
+#endif
 }
 
 class MyServerCallbacks: public BLEServerCallbacks {
@@ -324,9 +329,11 @@ bool initWiFi(const char *ssid, const char *password) {
       c = '\\';
     }
     Serial.print(c);
+#ifdef ENABLE_DISPLAY
     snprintf(buffer, OUT_BUFFER_SIZE, "Connecting to %s %c", ssid, c);
     display.clearDisplay();
     displayln(buffer);
+#endif
     yield();
     ++count;
     if (!digitalRead(BUTTON_A)) {
@@ -336,9 +343,11 @@ bool initWiFi(const char *ssid, const char *password) {
   }
   ip = WiFi.localIP();
   Serial.println(ip);
+#ifdef ENABLE_DISPLAY
   snprintf(buffer, OUT_BUFFER_SIZE, "Connected to %s with %s\n", ssid, ip.toString().c_str());
   display.clearDisplay();
   displayln(buffer);
+#endif
   delay(2000);
 
   // initialize time
@@ -366,18 +375,23 @@ void stopSong(bool report=true) {
 }
 
 void initButtons() {
+#ifdef ENABLE_DISPLAY
   pinMode(BUTTON_A, INPUT_PULLUP);
   pinMode(BUTTON_B, INPUT_PULLUP);
   pinMode(BUTTON_C, INPUT_PULLUP);
   digitalWrite(BUTTON_C, HIGH);
   digitalWrite(BUTTON_B, HIGH);
   digitalWrite(BUTTON_A, HIGH);
+#endif
 
   pinMode(USER_BUTTON_PIN, INPUT);
   digitalWrite(USER_BUTTON_PIN, LOW);
+  if (digitalRead(USER_BUTTON_PIN)) {
+    Serial.println("input error!");
+  }
 }
 
-void initWeather() {
+/*void initWeather() {
   // Try to initialize!
   if (!ms8607.begin()) {
     while (1) {Serial.println("Failed to find MS8607 chip"); delay(1000); }
@@ -402,7 +416,7 @@ void initWeather() {
     case MS8607_PRESSURE_RESOLUTION_OSR_4096: Serial.println("4096"); break;
     case MS8607_PRESSURE_RESOLUTION_OSR_8192: Serial.println("8192"); break;
   }
-}
+}*/
 
 void enableBLE() {
   // Create the BLE Device
@@ -480,7 +494,7 @@ bool initClockAndWifi() {
   if (!initWiFi(settings.ssid, settings.pass)) {
     return false;
   }
-  initWeather(); // local device weather conditions
+  //initWeather(); // local device weather conditions
   Serial.println("Wifi connected. Loading time");
 
   // initialize time
@@ -531,7 +545,7 @@ void setup() {
   digitalWrite(MP3_PWR, LOW);
   digitalWrite(LED_BLUE_CONFIG, LOW);
 
-
+#ifdef ENABLE_DISPLAY
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // Address 0x3C for 128x32
   // text display tests
   display.setTextSize(1);
@@ -543,6 +557,7 @@ void setup() {
   // Clear the buffer.
   display.clearDisplay();
   display.display();
+#endif
 
 
 //  if (!SPIFFS.begin(true)) {
@@ -570,13 +585,18 @@ void setup() {
     //delay(2000);
     Serial.println("config seems good so we're gonna try to configure wifi");
     initClockAndWifi();
+    enableBLE();
   } else {
     Serial.println("settings not good yet turn on bluetooth so we can get user settings");
+#ifdef ENABLE_DISPLAY
     display.clearDisplay();
     displayln("Enable BLE");
+#endif
     enableBLE();
+#ifdef ENABLE_DISPLAY
     display.clearDisplay();
     displayln("Connect to Clock via Bluetooh to configure WiFI");
+#endif
   }
 
 }
@@ -617,9 +637,11 @@ short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay) {
 #else
     if (normalDisplay) {
 #endif
+#ifdef ENABLE_DISPLAY
       display.setTextSize(2);
       display.setTextColor(SSD1306_WHITE);
       display.print(buf);
+#endif
     }
 #ifdef ENABLE_EPAPER
     if (epaper_update && ePaperDisplay) {
@@ -639,10 +661,12 @@ short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay) {
 #else
     if (normalDisplay) {
 #endif
+#ifdef ENABLE_DISPLAY
       display.setCursor(0,18);
       display.setTextSize(1);
       display.setTextColor(SSD1306_WHITE);
       display.print(buf);
+#endif
     }
 #ifdef ENABLE_EPAPER
     if (epaper_update && ePaperDisplay) {
@@ -703,10 +727,10 @@ float readBattery() {
 
 
 void displayClock() {
-  sensors_event_t temp, temp_pressure, temp_humidity;
-  ms8607.getEvent(&temp_pressure, &temp, &temp_humidity);
-  float temperature = temp.temperature;
-  float humidity = temp_humidity.relative_humidity;
+  //sensors_event_t temp, temp_pressure, temp_humidity;
+  //ms8607.getEvent(&temp_pressure, &temp, &temp_humidity);
+  float temperature = 60;////temp.temperature;
+  float humidity = 50;// temp_humidity.relative_humidity;
   float battery = readBattery();
   short needUpdate = roundf(lastTemp) != roundf(temperature);
 
@@ -716,9 +740,11 @@ void displayClock() {
     // (26.15°C × 9/5) + 32 = 79.07°F
     temperature = (temperature * 1.8) + 32.0;
   }
+#ifdef ENABLE_DISPLAY
   display.clearDisplay();
   display.setCursor(0,0);
   display.setTextColor(SSD1306_WHITE);
+#endif
 #ifdef ENABLE_EPAPER
   if (xSemaphoreTake(settingsLock, (TickType_t) 10 ) == pdTRUE) {
     needUpdate = displayTime(needUpdate, lastSecond);
@@ -732,11 +758,13 @@ void displayClock() {
     snprintf(buffer, OUT_BUFFER_SIZE,
              "%.0f%s, %.0f %%rH, %.1fV\n",
              temperature, (settings.fahrenheit ? "F" : "C"), humidity, battery);
+#ifdef ENABLE_DISPLAY
     display.setTextSize(1);
 
     display.print(buffer);
 
     display.display();
+#endif
     if (needUpdate == 2) {
       // this means at least 1 minute has past since the last update so we'll do things here like also checking alarms and quote updates
       // as well as updating our epaper if it's enabled
@@ -792,14 +820,17 @@ void loop() {
   short button_c_pressed = 0;
 
   if (digitalRead(USER_BUTTON_PIN)) {
-    button_b_pressed = 1;
-    Serial.println("user button pressed");
+    if (last_button_pressed > 2) { // only trigger if it's 2 cycles HIGH
+      button_b_pressed = 1;
+      Serial.println("confirmed user button pressed");
+    }
     last_button_pressed++;
+    digitalWrite(USER_BUTTON_PIN, LOW); // try to set it low again
   } else {
     last_button_pressed = 0;
   }
 
-  if (last_button_pressed > 10) { // 500 * 10 == 5 seconds
+  /*if (last_button_pressed > 10) { // 500 * 10 == 5 seconds
     Serial.println("user pressed a long 10 seconds");
     button_a_pressed = 1; // as if configure toggled on
   }
@@ -814,9 +845,10 @@ void loop() {
     button_a_pressed = 1;
     button_b_pressed = 1;
     button_c_pressed = 0;
-  }
+  }*/
 
 
+#ifdef ENABLE_DISPLAY
   if (!digitalRead(BUTTON_A)) {
     button_a_pressed  = 1;
   }
@@ -828,6 +860,7 @@ void loop() {
   if (!digitalRead(BUTTON_C)) {
     button_c_pressed = 1;
   }
+#endif
 
   if (button_a_pressed) {
     Serial.println("Button A pressed enable ble");
@@ -895,8 +928,10 @@ void loop() {
   }
 
   if (button_a_pressed && button_b_pressed) {
+#ifdef ENABLE_DISPLAY
     displayln("Factory Reset...");
     display.clearDisplay();
+#endif
     memset(settings.ssid, 0, 32);
     memset(settings.pass, 0, 32);
     memset(settings.quote, 0, 256);
