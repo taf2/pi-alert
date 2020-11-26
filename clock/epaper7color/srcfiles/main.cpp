@@ -92,7 +92,7 @@ short displayTime(short needUpdate, time_t currentSecond, const char *quote, con
       //yield();
       // print a quote if we have one
       if (strlen(quote) > 0) {
-        ePaperDisplay.setCursor(25, 290);  // Set the position to start printing text (x,y)
+        ePaperDisplay.setCursor(25, 270);  // Set the position to start printing text (x,y)
         ePaperDisplay.setFont(&FreeMono12pt7b);  // Set font
         {
           //int16_t x1, y1;
