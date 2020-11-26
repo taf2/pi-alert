@@ -14,6 +14,7 @@ monitor:
 	pio device monitor
 
 configure:
+	pio lib install "mikem/RadioHead"
 	mkdir -p src
 
 clean:
