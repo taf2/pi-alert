@@ -5,9 +5,9 @@ An ePaper clock with a music alarm configured via Bluetooth low energy using a I
 ![ePaper Clock](https://raw.githubusercontent.com/taf2/pi-alert/master/clock/parts/Clock%20v27.png)
 
 # Repos
-display-feather - ESP32 controller for BLE and WiFi (main source of power)
-epaper7color         - ItsyBitsy M4 driver for ePaper
-../actitapp             - web app for ble configuration UI
+* display-feather - ESP32 controller for BLE and WiFi (main source of power)
+* epaper7color    - ItsyBitsy M4 driver for ePaper
+* ../actitapp     - web app for ble configuration UI
 
 # Components
 
