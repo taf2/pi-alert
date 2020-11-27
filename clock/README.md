@@ -3,6 +3,7 @@
 An ePaper clock with a music alarm configured via Bluetooth low energy using a ItsyBitsy M4 and a feather ESP32
 
 ![ePaper Clock](https://raw.githubusercontent.com/taf2/pi-alert/master/clock/parts/Clock%20v27.png)
+[Video of the Clock](https://www.youtube.com/watch?v=r2SdpJf9KkA)
 
 # Repos
 * display-feather - ESP32 controller for BLE and WiFi (main source of power)
