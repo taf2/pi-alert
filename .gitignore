@@ -4,7 +4,6 @@ image1.jpg
 *.swp
 public/*.jpg
 .DS_Store
-.pio/*
 itsybitsy/.pio/*
 detector/.pio/*
 epaper7color/.pio/*
@@ -12,3 +11,4 @@ trinketm0_on_when_light/.pio/*
 temp-display-feather/src/main.cpp
 temp-display-feather/.pio/*
 conf.yml
+.pio
