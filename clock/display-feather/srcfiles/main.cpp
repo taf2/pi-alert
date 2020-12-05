@@ -59,6 +59,7 @@
 #define LED_BLUE_CONFIG 13
 #define BUZZER 33
 #define MP3_PWR 27
+#define BLUE_BUTTON_LED 15
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
@@ -313,8 +314,10 @@ bool initWiFi(const char *ssid, const char *password) {
 
   wl_status_t status = WiFi.begin(ssid, password);
   if (status == WL_CONNECT_FAILED) {
+    Serial.println("Connection Error!!!!!!!!!");
     snprintf(buffer, OUT_BUFFER_SIZE, "Failed to connect to %s \\", ssid);
     displayln(buffer);
+    Serial.println(buffer);
     return false;
   }
   snprintf(buffer, OUT_BUFFER_SIZE, "Connecting to %s \\", ssid);
@@ -336,15 +339,18 @@ bool initWiFi(const char *ssid, const char *password) {
 #endif
     yield();
     ++count;
+#ifdef ENABLE_DISPLAY
     if (!digitalRead(BUTTON_A)) {
       // user pressed A button while trying to connect this should abort all wifi
       return false;
     }
+#endif
   }
   ip = WiFi.localIP();
   Serial.println(ip);
-#ifdef ENABLE_DISPLAY
   snprintf(buffer, OUT_BUFFER_SIZE, "Connected to %s with %s\n", ssid, ip.toString().c_str());
+  Serial.print(buffer);
+#ifdef ENABLE_DISPLAY
   display.clearDisplay();
   displayln(buffer);
 #endif
@@ -385,10 +391,12 @@ void initButtons() {
 #endif
 
   pinMode(USER_BUTTON_PIN, INPUT);
+  pinMode(BLUE_BUTTON_LED, OUTPUT);
   digitalWrite(USER_BUTTON_PIN, LOW);
   if (digitalRead(USER_BUTTON_PIN)) {
     Serial.println("input error!");
   }
+  digitalWrite(BLUE_BUTTON_LED, LOW);
 }
 
 /*void initWeather() {
@@ -489,9 +497,10 @@ void disableBLE() {
   }
 }
 bool initClockAndWifi() {
-  Serial.println("wifi is configuredi start connecting");
+  Serial.println("wifi is configured start connecting...");
   Serial.println(settings.ssid);
   if (!initWiFi(settings.ssid, settings.pass)) {
+    Serial.println("!!!!!!!!Error Connecting with WIFI!!!!!!!!");
     return false;
   }
   //initWeather(); // local device weather conditions
@@ -578,11 +587,11 @@ void setup() {
   }
   */
     
+  delay(3000);
   if (settings.load() && settings.good()) {
     //enableBLE(); // initialize the library early
     //delay(2000);
     //disableBLE(); // turn it off unless needed?
-    //delay(2000);
     Serial.println("config seems good so we're gonna try to configure wifi");
     initClockAndWifi();
     enableBLE();
@@ -781,7 +790,7 @@ void displayClock() {
 void checkAlarm() {
   //const int    tzOffset = -5 * 60 * 60;
   currentSecond = timeClient.getEpochTime(); // set globally
-  const int offsetSeconds = settings.timezoneOffset();
+  //const int offsetSeconds = settings.timezoneOffset();
   const time_t epoch = currentSecond;
   const time_t offsetTime = epoch;// + tzOffset;
   const int    currentDay = offsetTime / 24 / 60 / 60; // convert seconds to the day
@@ -796,7 +805,14 @@ void checkAlarm() {
 //  Serial.println(buffer);
 
   if (offsetTime > startTimeToAlarm && offsetTime < endTimeToAlarm) {
-    if (!SongActive) {
+    if (SongActive) {
+      // blink BLUE button LED for alarm 1 second blinkage
+      if (currentSecond % 2 == 0) {
+        digitalWrite(BLUE_BUTTON_LED, HIGH);
+      } else {
+        digitalWrite(BLUE_BUTTON_LED, LOW);
+      }
+    } else {
       Serial.println("sound the alarm");
       if (StopSongTime < startTimeToAlarm) {
         startSong();
@@ -829,24 +845,6 @@ void loop() {
   } else {
     last_button_pressed = 0;
   }
-
-  /*if (last_button_pressed > 10) { // 500 * 10 == 5 seconds
-    Serial.println("user pressed a long 10 seconds");
-    button_a_pressed = 1; // as if configure toggled on
-  }
-  if (last_button_pressed > 40) { // 500 * 40 == 20 seconds (force fetch new quote)
-    Serial.println("force fetch");
-    button_a_pressed = 0; // toggle off
-    button_c_pressed = 1; // fetch 
-  }
-
-  if (last_button_pressed > 80) { // 500 * 80 == 40 seconds (factory reset)
-    Serial.println("user factory reset");
-    button_a_pressed = 1;
-    button_b_pressed = 1;
-    button_c_pressed = 0;
-  }*/
-
 
 #ifdef ENABLE_DISPLAY
   if (!digitalRead(BUTTON_A)) {
@@ -900,8 +898,6 @@ void loop() {
 
   if (DidInitWifi) {
     int offsetSeconds = settings.timezoneOffset();
-//    Serial.print("set timezone offset:");
-//    Serial.println(offsetSeconds);
     timeClient.setTimeOffset(offsetSeconds);
     //Serial.println("offset now update");
     timeClient.update();

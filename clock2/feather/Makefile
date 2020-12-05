@@ -4,7 +4,7 @@ all: display
 upload: display
 	pio run -j 2 --target upload --upload-port /dev/cu.SLAB_USBtoUART && sleep 1;  pio device monitor -p /dev/cu.SLAB_USBtoUART
 
-display: src/main.cpp
+display: src/main.cc src/settings.cc
 	pio run
 
 monitor:
@@ -15,3 +15,4 @@ configure:
 	pio lib install "adafruit/Adafruit SHARP Memory Display"
 	pio lib install "arduino-libraries/NTPClient"
 	pio lib install "bblanchon/ArduinoJson"
+	pio lib install "ESP Async WebServer"
