@@ -59,7 +59,8 @@
 #define LED_BLUE_CONFIG 13
 #define BUZZER 33
 #define MP3_PWR 27
-#define BLUE_BUTTON_LED 15
+#define ALARM_BUTTON_LED 15
+#define SNOOZE_BUTTON_LED 32
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
@@ -77,6 +78,7 @@
 #define RST_PIN         A0 // must be output capable and is an INPUT_PULLUP
 #define BUSY_PIN        A2 // must be input capable
 #define USER_BUTTON_PIN 21 // external user interface button to toggle on / off alarm
+#define USER2_BUTTON_PIN 14 // external user interface button to toggle on / off alarm snooze function e.g. trigger alarm again in 5 minutes if no user input on alarm cancel taken
 
 // OLED FeatherWing buttons map to different pins depending on board:
 #if defined(ESP8266)
@@ -118,6 +120,8 @@ static volatile time_t currentSecond = 0;
 static time_t prevSecond = 0;
 static time_t lastSecond    = 0;
 static float lastTemp    = 0;
+static bool snoozeActivated = false;
+static time_t snoozedAt = 0;
 
 static const short OUT_BUFFER_SIZE = 512;
 static char buffer[OUT_BUFFER_SIZE];
@@ -378,6 +382,8 @@ void stopSong(bool report=true) {
     Serial.println("stop alarm");
     StopSongTime = currentSecond;
   }
+  digitalWrite(ALARM_BUTTON_LED, LOW);
+  digitalWrite(SNOOZE_BUTTON_LED, LOW);
 }
 
 void initButtons() {
@@ -391,12 +397,19 @@ void initButtons() {
 #endif
 
   pinMode(USER_BUTTON_PIN, INPUT);
-  pinMode(BLUE_BUTTON_LED, OUTPUT);
+  pinMode(USER2_BUTTON_PIN, INPUT);
+  pinMode(ALARM_BUTTON_LED, OUTPUT);
+  pinMode(SNOOZE_BUTTON_LED, OUTPUT);
   digitalWrite(USER_BUTTON_PIN, LOW);
+  digitalWrite(USER2_BUTTON_PIN, LOW);
   if (digitalRead(USER_BUTTON_PIN)) {
-    Serial.println("input error!");
+    Serial.println("user input error!");
   }
-  digitalWrite(BLUE_BUTTON_LED, LOW);
+  if (digitalRead(USER2_BUTTON_PIN)) {
+    Serial.println("user2 input error!");
+  }
+  digitalWrite(ALARM_BUTTON_LED, LOW);
+  digitalWrite(SNOOZE_BUTTON_LED, LOW);
 }
 
 /*void initWeather() {
@@ -806,11 +819,12 @@ void checkAlarm() {
 
   if (offsetTime > startTimeToAlarm && offsetTime < endTimeToAlarm) {
     if (SongActive) {
+      digitalWrite(SNOOZE_BUTTON_LED, HIGH); // light up the snooze button
       // blink BLUE button LED for alarm 1 second blinkage
       if (currentSecond % 2 == 0) {
-        digitalWrite(BLUE_BUTTON_LED, HIGH);
+        digitalWrite(ALARM_BUTTON_LED, HIGH);
       } else {
-        digitalWrite(BLUE_BUTTON_LED, LOW);
+        digitalWrite(ALARM_BUTTON_LED, LOW);
       }
     } else {
       Serial.println("sound the alarm");
@@ -834,6 +848,7 @@ void loop() {
   short button_a_pressed = 0;
   short button_b_pressed = 0;
   short button_c_pressed = 0;
+  short snooze_button_pressed = 0;
 
   if (digitalRead(USER_BUTTON_PIN)) {
     if (last_button_pressed > 2) { // only trigger if it's 2 cycles HIGH
@@ -844,6 +859,10 @@ void loop() {
     digitalWrite(USER_BUTTON_PIN, LOW); // try to set it low again
   } else {
     last_button_pressed = 0;
+  }
+
+  if (digitalRead(USER2_BUTTON_PIN)) {
+    snooze_button_pressed = 1;
   }
 
 #ifdef ENABLE_DISPLAY
@@ -883,10 +902,21 @@ void loop() {
     Serial.println("pressed B");
     //if (SongActive) {
     stopSong();
+    snoozeActivated = false;
 //    } else {
 //      startSong();
 //    }
     button_delay = 1;
+  }
+
+  if (snooze_button_pressed) {
+    stopSong();
+    snoozeActivated = true;
+    snoozedAt = currentSecond;
+  }
+
+  if (snoozeActivated && currentSecond > (snoozedAt + 500)) {
+    startSong();
   }
 
   if (button_c_pressed) {
