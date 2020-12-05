@@ -812,7 +812,9 @@ void checkAlarm() {
 
   const int startOfDayInSeconds = (currentDay * 24 * 60 * 60); // this gets us the starting second of the current day
   const int startTimeToAlarm = startOfDayInSeconds + (hour*60*60) + (minute*60);
-  const int endTimeToAlarm = startOfDayInSeconds + (hour*60*60) + ((minute+4)*60); // 4 minutes of padding
+  const int endTimeToAlarm = startOfDayInSeconds + (hour*60*60) + ((minute+4)*60) + (snoozedAt > 0 ? 300 : 0);
+                                                // 4 minutes of padding for song to play
+                                                // if snoozedAt then add 300 seconds to additional padding time
 
   //snprintf(buffer, OUT_BUFFER_SIZE, "epoch: %ld (%ld), %d, startTimeToAlarm: %d, endTimeToAlarm: %d\n", epoch, offsetTime, offsetSeconds, startTimeToAlarm, endTimeToAlarm);
 //  Serial.println(buffer);
@@ -910,12 +912,14 @@ void loop() {
   }
 
   if (snooze_button_pressed) {
-    stopSong();
-    snoozeActivated = true;
-    snoozedAt = currentSecond;
+    if (SongActive) {
+      stopSong();
+      snoozeActivated = true;
+      snoozedAt = currentSecond;
+    }
   }
 
-  if (snoozeActivated && currentSecond > (snoozedAt + 500)) {
+  if (snoozeActivated && currentSecond > (snoozedAt + 300)) {
     startSong();
   }
 
