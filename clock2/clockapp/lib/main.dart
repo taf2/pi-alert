@@ -9,15 +9,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue/flutter_blue.dart';
 import 'package:clockapp/widgets.dart';
 
-void main() {
-  runApp(FlutterBlueApp());
-}
+void main() => runApp(ClockApp());
 
-class FlutterBlueApp extends StatelessWidget {
+class ClockApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      color: Colors.lightBlue,
+      title: "Priscilla's Clock",
+      theme: ThemeData(primaryColor: Colors.pink),
+      color: Colors.pink,
       home: StreamBuilder<BluetoothState>(
           stream: FlutterBlue.instance.state,
           initialData: BluetoothState.unknown,
@@ -40,7 +40,7 @@ class BluetoothOffScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.lightBlue,
+      backgroundColor: Colors.pink,
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -69,7 +69,7 @@ class FindDevicesScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Find Devices'),
+        title: Text("Priscilla's Clock"),
       ),
       body: RefreshIndicator(
         onRefresh: () =>
@@ -111,7 +111,7 @@ class FindDevicesScreen extends StatelessWidget {
                 stream: FlutterBlue.instance.scanResults,
                 initialData: [],
                 builder: (c, snapshot) => Column(
-                  children: snapshot.data
+                  children: snapshot.data.where( (r) => r.device.name == "Clock" )
                       .map(
                         (r) => ScanResultTile(
                           result: r,
