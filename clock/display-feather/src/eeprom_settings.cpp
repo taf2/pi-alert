@@ -220,8 +220,13 @@ void EEPROMSettings::loadQuote(NTPClient &timeClient) {
   const int currentDay = timeClient.getEpochTime() / 60 / 60 / 24;
   if (currentDay > lastQuoteFetchDay) {
     Serial.println("fetching a new quote for a new day");
+		Serial.print("currentDay:");
+		Serial.print(currentDay);
+		Serial.print(", lastQuoteFetchDay:");
+		Serial.print(lastQuoteFetchDay);
     fetchQuote(timeClient);
     fetchWeather(timeClient);
+    lastQuoteFetchDay = timeClient.getEpochTime() / 60 / 60 / 24; // it's possible fetchQuote will fail doing this to avoid too many requests
   } else {
 		//Serial.println("we already have a quote:");
 		//Serial.println(quote);

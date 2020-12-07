@@ -61,6 +61,7 @@
 #define MP3_PWR 27
 #define ALARM_BUTTON_LED 15
 #define SNOOZE_BUTTON_LED 32
+#define SNOOZE_SECONDS 30
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
@@ -121,6 +122,7 @@ static time_t prevSecond = 0;
 static time_t lastSecond    = 0;
 static float lastTemp    = 0;
 static bool snoozeActivated = false;
+static bool didSnoozeStart = false;
 static time_t snoozedAt = 0;
 
 static const short OUT_BUFFER_SIZE = 512;
@@ -283,6 +285,9 @@ class MyCallbacks: public BLECharacteristicCallbacks {
         Serial.println( ( key + " = " + value).c_str() );
         settings.hour = atoi(value.c_str());
         StopSongTime = 0; // reset alarm stop
+        snoozedAt = 0;
+        snoozeActivated = false;
+        didSnoozeStart = false;
         settings.save();
         Serial.print("hour set:");
         Serial.println(settings.hour);
@@ -290,6 +295,9 @@ class MyCallbacks: public BLECharacteristicCallbacks {
         Serial.println( ( key + " = " + value).c_str() );
         settings.minute = atoi(value.c_str());
         StopSongTime = 0; // reset alarm stop
+        snoozedAt = 0;
+        snoozeActivated = false;
+        didSnoozeStart = false;
         settings.save();
         Serial.print("minute set:");
         Serial.println(settings.minute);
@@ -377,13 +385,21 @@ void startSong() {
 }
 void stopSong(bool report=true) {
   digitalWrite(MP3_PWR, LOW); // CUT the power
+  Serial.println("stopSong");
   SongActive   = false;
   if (report) {
-    Serial.println("stop alarm");
+    Serial.println("user stop alarm");
     StopSongTime = currentSecond;
   }
   digitalWrite(ALARM_BUTTON_LED, LOW);
   digitalWrite(SNOOZE_BUTTON_LED, LOW);
+  if (didSnoozeStart) {
+    Serial.println("reset snooze");
+    // reset all the snooze
+    didSnoozeStart = false;
+    snoozeActivated = false;
+    snoozedAt = 0;
+  }
 }
 
 void initButtons() {
@@ -801,25 +817,24 @@ void displayClock() {
 }
 
 void checkAlarm() {
-  //const int    tzOffset = -5 * 60 * 60;
   currentSecond = timeClient.getEpochTime(); // set globally
-  //const int offsetSeconds = settings.timezoneOffset();
-  const time_t epoch = currentSecond;
-  const time_t offsetTime = epoch;// + tzOffset;
-  const int    currentDay = offsetTime / 24 / 60 / 60; // convert seconds to the day
-  const short hour = settings.hour;
-  const short minute = settings.minute;
+ 
+  const int   currentDay        = currentSecond / 24 / 60 / 60; // convert seconds to the day
+  const short hour              = settings.hour;
+  const short minute            = settings.minute;
 
-  const int startOfDayInSeconds = (currentDay * 24 * 60 * 60); // this gets us the starting second of the current day
-  const int startTimeToAlarm = startOfDayInSeconds + (hour*60*60) + (minute*60);
-  const int endTimeToAlarm = startOfDayInSeconds + (hour*60*60) + ((minute+4)*60) + (snoozedAt > 0 ? 300 : 0);
-                                                // 4 minutes of padding for song to play
-                                                // if snoozedAt then add 300 seconds to additional padding time
+  // this gets us the starting second of the current day
+  const int startOfDayInSeconds = currentDay * 24 * 60 * 60;
 
-  //snprintf(buffer, OUT_BUFFER_SIZE, "epoch: %ld (%ld), %d, startTimeToAlarm: %d, endTimeToAlarm: %d\n", epoch, offsetTime, offsetSeconds, startTimeToAlarm, endTimeToAlarm);
+  // startTimeToAlarm either relative to the snoozedAt + SNOOZE_SECONDS or user set time to alarm
+  const int startTimeToAlarm    = snoozeActivated ? (snoozedAt + SNOOZE_SECONDS) : (startOfDayInSeconds + (hour*60*60) + (minute*60));
+  const int endTimeToAlarm      = startOfDayInSeconds + (hour*60*60) + ((minute+4)*60);
+                                  // 4 minutes of padding for song to play
+
+  //snprintf(buffer, OUT_BUFFER_SIZE, "epoch: %ld (%ld), %d, startTimeToAlarm: %d, endTimeToAlarm: %d\n", currentSecond, currentSecond, offsetSeconds, startTimeToAlarm, endTimeToAlarm);
 //  Serial.println(buffer);
 
-  if (offsetTime > startTimeToAlarm && offsetTime < endTimeToAlarm) {
+  if (currentSecond > startTimeToAlarm && currentSecond < endTimeToAlarm) {
     if (SongActive) {
       digitalWrite(SNOOZE_BUTTON_LED, HIGH); // light up the snooze button
       // blink BLUE button LED for alarm 1 second blinkage
@@ -829,17 +844,35 @@ void checkAlarm() {
         digitalWrite(ALARM_BUTTON_LED, LOW);
       }
     } else {
-      Serial.println("sound the alarm");
       if (StopSongTime < startTimeToAlarm) {
+        if (snoozeActivated) {
+          didSnoozeStart = true; // ensure the snooze feature is turned off when stop is called
+        }
+        Serial.println("sound the alarm");
         startSong();
-      } else {
-        Serial.println("you stopped it");
-        Serial.println(StopSongTime);
-        Serial.println(startTimeToAlarm);
+      } else if (snoozeActivated) {
+        // while snoozed keep the alarm button blinking so you can cancel the snooze or know you can cancel the snooze
+        if (currentSecond % 2 == 0) {
+          digitalWrite(ALARM_BUTTON_LED, HIGH);
+        } else {
+          digitalWrite(ALARM_BUTTON_LED, LOW);
+        }
       }
     }
   } else {
-    stopSong(false);
+    if (snoozeActivated) {
+      if (currentSecond % 2 == 0) {
+        digitalWrite(ALARM_BUTTON_LED, HIGH);
+      } else {
+        digitalWrite(ALARM_BUTTON_LED, LOW);
+      }
+    }// else {
+      // only stop alarm 30 seconds after the alarm time otherwise skip
+      if (currentSecond > endTimeToAlarm && SongActive) {
+        Serial.println("stop alarm");
+        stopSong(false);
+      }
+    //}
   }
 }
 
@@ -853,12 +886,12 @@ void loop() {
   short snooze_button_pressed = 0;
 
   if (digitalRead(USER_BUTTON_PIN)) {
-    if (last_button_pressed > 2) { // only trigger if it's 2 cycles HIGH
+    //if (last_button_pressed > 2) { // only trigger if it's 2 cycles HIGH
       button_b_pressed = 1;
-      Serial.println("confirmed user button pressed");
-    }
-    last_button_pressed++;
-    digitalWrite(USER_BUTTON_PIN, LOW); // try to set it low again
+    //  Serial.println("confirmed user button pressed");
+    //}
+    //last_button_pressed++;
+    //digitalWrite(USER_BUTTON_PIN, LOW); // try to set it low again
   } else {
     last_button_pressed = 0;
   }
@@ -902,25 +935,20 @@ void loop() {
   }
   if (button_b_pressed) {
     Serial.println("pressed B");
-    //if (SongActive) {
     stopSong();
     snoozeActivated = false;
-//    } else {
-//      startSong();
-//    }
     button_delay = 1;
   }
 
   if (snooze_button_pressed) {
+    Serial.println("pressed snooze");
     if (SongActive) {
       stopSong();
+      didSnoozeStart  = false;
       snoozeActivated = true;
-      snoozedAt = currentSecond;
+      snoozedAt       = currentSecond;
     }
-  }
-
-  if (snoozeActivated && currentSecond > (snoozedAt + 300)) {
-    startSong();
+    button_delay = 1;
   }
 
   if (button_c_pressed) {
