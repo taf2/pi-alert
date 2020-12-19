@@ -1,7 +1,5 @@
-/* Basic demo for reading Humidity and Temperature
-  display on oled display
-
-	going to also have an epaper device now to display softer clock face we'll need to only update each minute to throttle 
+/* 
+	Going to also have an epaper device now to display softer clock face we'll need to only update each minute to throttle 
 	writes to the epaper since updates are expensive to the display
 
 	the oled display will continue to be attached and we'll have a night option since clocks suck at night they're too bright
@@ -55,22 +53,17 @@
 
 #include "eeprom_settings.h"
 
-#define LED_CONFIGURED 12
-#define LED_BLUE_CONFIG 13
-#define BUZZER 33
-#define MP3_PWR 27
-#define ALARM_BUTTON_LED 15
-#define SNOOZE_BUTTON_LED 32
-#define SNOOZE_SECONDS 30
-
-// See the following for generating UUIDs:
-// https://www.uuidgenerator.net/
-#define SERVICE_UUID           "e2f52832-2c23-4318-85cb-be11f7421999" //"6E400001-B5A3-F393-E0A9-E50E24DCCA9E" // UART service UUID
-#define CHARACTERISTIC_UUID_RX "e5de2fab-bf9b-439d-81d1-24651d8201a7" //"6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
-#define CHARACTERISTIC_UUID_TX "e6f61157-5e3a-4656-a412-de8610a63d76" //"6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
-
-
 #define VBATPIN A13
+#define EPAPER_POWER_ON 12 // control power to the display epaper control ItsyBitsy board 
+#define LED_BLUE_CONFIG 13
+#define USER2_BUTTON_PIN 14 // external user interface button to toggle on / off alarm snooze function e.g. trigger alarm again in 5 minutes if no user input on alarm cancel taken
+#define ALARM_BUTTON_LED 15
+#define USER_BUTTON_PIN 21 // external user interface button to toggle on / off alarm
+#define MP3_PWR 27 // connected to the enable pin on the buck converter 3.3v to mp3 df mini player
+#define SNOOZE_BUTTON_LED 32
+#define BUZZER 33
+
+#define SNOOZE_SECONDS 30 // seconds that snooze will prevent alarm from re-firing
 
 // ePaper pins in addition to MOSI (DIN) and SCK (CLK)
 // we can't use A3 or A4 since they have to be output capable and are not on the feather esp32
@@ -78,8 +71,12 @@
 #define DC_PIN          A1 // must be output capable
 #define RST_PIN         A0 // must be output capable and is an INPUT_PULLUP
 #define BUSY_PIN        A2 // must be input capable
-#define USER_BUTTON_PIN 21 // external user interface button to toggle on / off alarm
-#define USER2_BUTTON_PIN 14 // external user interface button to toggle on / off alarm snooze function e.g. trigger alarm again in 5 minutes if no user input on alarm cancel taken
+
+// See the following for generating UUIDs:
+// https://www.uuidgenerator.net/
+#define SERVICE_UUID           "e2f52832-2c23-4318-85cb-be11f7421999" //"6E400001-B5A3-F393-E0A9-E50E24DCCA9E" // UART service UUID
+#define CHARACTERISTIC_UUID_RX "e5de2fab-bf9b-439d-81d1-24651d8201a7" //"6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+#define CHARACTERISTIC_UUID_TX "e6f61157-5e3a-4656-a412-de8610a63d76" //"6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
 // OLED FeatherWing buttons map to different pins depending on board:
 #if defined(ESP8266)
@@ -115,12 +112,14 @@ static short displayTime(short needUpdate, time_t &lastSecond, bool normalDispla
 #endif
 static void disableBLE();
 static bool initWiFi(const char *ssid, const char *password);
+static void WiFiOff();
+static bool WiFiOn();
 static bool initClockAndWifi();
 
 static volatile time_t currentSecond = 0;
+static time_t displayUpdateStartTime = 0; // when did we start a display update
 static time_t prevSecond = 0;
 static time_t lastSecond    = 0;
-static float lastTemp    = 0;
 static bool snoozeActivated = false;
 static bool didSnoozeStart = false;
 static time_t snoozedAt = 0;
@@ -134,6 +133,7 @@ static const char *BLE_SET_CONFIG_KEYS[] =  {"ssid", "pass", "alrh", "alrm", "dt
 static bool deviceConnected = false;
 static bool ConfigMode = false; //  when pressed we'll enter configuration mode
 static bool DidInitWifi = false;
+static bool IsWiFiOn = false;
 static bool SongActive = false;
 static time_t StopSongTime = 0; // the time that it was stopped
 
@@ -370,10 +370,49 @@ bool initWiFi(const char *ssid, const char *password) {
 
   // initialize time
   DidInitWifi = true;
+  IsWiFiOn     = true;
   return true;
 }
 
+bool WiFiOn() {
+  Serial.println("power up wifi to get new data");
+  wl_status_t status = WiFi.begin(settings.ssid, settings.pass);
+  if (status == WL_CONNECT_FAILED) {
+    Serial.println("Connection Error!!!!!!!!!");
+    snprintf(buffer, OUT_BUFFER_SIZE, "Failed to connect to %s \\", settings.ssid);
+    displayln(buffer);
+    Serial.println(buffer);
+    return false;
+  }
+  snprintf(buffer, OUT_BUFFER_SIZE, "Connecting to %s \\", settings.ssid);
+  Serial.print(buffer);
+  int count = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(100);
+    char c = '/';
+    if (count % 2 == 0) {
+      c = '/';
+    } else {
+      c = '\\';
+    }
+    Serial.print(c);
+    yield();
+    ++count;
+  }
+  IsWiFiOn      = true;
+  return IsWiFiOn;
+}
+
+void WiFiOff() {
+  Serial.println("power down wifi to save energy");
+  WiFi.mode(WIFI_OFF);
+  IsWiFiOn      = false;
+}
+
 void startSong() {
+  gpio_hold_dis((gpio_num_t)EPAPER_POWER_ON);
+  gpio_hold_dis((gpio_num_t)MP3_PWR);
+  digitalWrite(EPAPER_POWER_ON, HIGH);
   digitalWrite(MP3_PWR, HIGH); // send power to the device
   // it takes sometime for the relay to warm up to give power to the device... we need to delay here to ensure it had time 
   delay(1000);
@@ -427,33 +466,6 @@ void initButtons() {
   digitalWrite(ALARM_BUTTON_LED, LOW);
   digitalWrite(SNOOZE_BUTTON_LED, LOW);
 }
-
-/*void initWeather() {
-  // Try to initialize!
-  if (!ms8607.begin()) {
-    while (1) {Serial.println("Failed to find MS8607 chip"); delay(1000); }
-  }
-  Serial.println("MS8607 Found!");
-
-  ms8607.setHumidityResolution(MS8607_HUMIDITY_RESOLUTION_OSR_8b);
-  Serial.print("Humidity resolution set to ");
-  switch (ms8607.getHumidityResolution()){
-    case MS8607_HUMIDITY_RESOLUTION_OSR_12b: Serial.println("12-bit"); break;
-    case MS8607_HUMIDITY_RESOLUTION_OSR_11b: Serial.println("11-bit"); break;
-    case MS8607_HUMIDITY_RESOLUTION_OSR_10b: Serial.println("10-bit"); break;
-    case MS8607_HUMIDITY_RESOLUTION_OSR_8b: Serial.println("8-bit"); break;
-  }
-  // ms8607.setPressureResolution(MS8607_PRESSURE_RESOLUTION_OSR_4096);
-  Serial.print("Pressure and Temperature resolution set to ");
-  switch (ms8607.getPressureResolution()){
-    case MS8607_PRESSURE_RESOLUTION_OSR_256: Serial.println("256"); break;
-    case MS8607_PRESSURE_RESOLUTION_OSR_512: Serial.println("512"); break;
-    case MS8607_PRESSURE_RESOLUTION_OSR_1024: Serial.println("1024"); break;
-    case MS8607_PRESSURE_RESOLUTION_OSR_2048: Serial.println("2048"); break;
-    case MS8607_PRESSURE_RESOLUTION_OSR_4096: Serial.println("4096"); break;
-    case MS8607_PRESSURE_RESOLUTION_OSR_8192: Serial.println("8192"); break;
-  }
-}*/
 
 void enableBLE() {
   // Create the BLE Device
@@ -532,7 +544,6 @@ bool initClockAndWifi() {
     Serial.println("!!!!!!!!Error Connecting with WIFI!!!!!!!!");
     return false;
   }
-  //initWeather(); // local device weather conditions
   Serial.println("Wifi connected. Loading time");
 
   // initialize time
@@ -575,7 +586,7 @@ void setup() {
 
 	EEPROM.begin(EEPROM_SIZE);
 
-  pinMode(LED_CONFIGURED, OUTPUT);
+  pinMode(EPAPER_POWER_ON, OUTPUT);
   pinMode(LED_BLUE_CONFIG, OUTPUT);
   pinMode(BUZZER, OUTPUT);
   pinMode(MP3_PWR, OUTPUT);
@@ -604,7 +615,8 @@ void setup() {
 //
   initButtons();
 
-  Serial1.begin(9600);
+  Serial1.begin(9600); // communications to the epaper ItsyBitsy
+  digitalWrite(EPAPER_POWER_ON, HIGH); // power up the device
 
     //enableBLE(); // initialize the library early
 /*  if (settings.load() && settings.good()) {
@@ -649,9 +661,45 @@ short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay) {
 #endif
   char buf[80];
   time_t rawtime = currentSecond;//tc.getEpochTime();
-  int rawMinute = (int)(rawtime/60);
-  int lastMinute = (int)(lastSecond/60);
-  if (needUpdate ||  rawMinute > lastMinute) {
+  int rawMinute = (int)(rawtime / 60);
+  int lastMinute = (int)(lastSecond / 60);
+  int secondsInMinute = (int)(rawtime % 60);
+
+  // the number of seconds past since we asked the epaper display to start updating
+  int drawingSeconds = (int)(currentSecond - displayUpdateStartTime);
+
+  /* to optimize power consumption we'll compute needPower as a function of time
+   * e.g. if it's 20 seconds before the top of the minute or 20 seconds after the
+   * top of the minute we'll want to keep power ON otherwise we can keep power off 
+   */
+  bool needPower = (needUpdate > 0) || (secondsInMinute > 49 || secondsInMinute < 21) || (drawingSeconds < 20);
+  // when it needs power
+  if (needPower || SongActive) { // power on within the update window or if we're playing the music for the alarm
+    gpio_hold_dis((gpio_num_t)EPAPER_POWER_ON);
+    digitalWrite(EPAPER_POWER_ON, HIGH);
+    Serial.println("power up");
+  } else {
+    Serial.println("power down");
+  // when it's safe to turn it off
+    digitalWrite(EPAPER_POWER_ON, LOW);
+    gpio_hold_en((gpio_num_t)EPAPER_POWER_ON);
+    gpio_hold_en((gpio_num_t)MP3_PWR);
+    // light sleep until 10 seconds before the top of the minute
+    int sleepFor = 50 - secondsInMinute;
+    if (sleepFor > 10) { //  don't bother if it's less then 10 seconds
+      Serial.println("light sleep");
+      // the problem with doing this sleep is then we can't power off easily on the epaper board and it makes a crackling sound with the df mini player gets current
+      // esp_sleep_enable_ext0_wakeup // use this to allow disabling this power saving feature by pressing a button to keep ble / wifi on for configuration
+      esp_sleep_enable_timer_wakeup( sleepFor * 1000000ULL);
+      esp_light_sleep_start();
+    }
+  }
+
+  if (rawMinute > lastMinute) {
+    needUpdate = 1;
+  }
+
+  if (needUpdate) {
     bool epaper_update = (rawMinute > lastMinute);
     //snprintf(buffer, 1024,
     //         "rawtime: %ld, lastSecond: %ld, rm: %d lm: %d\n", rawtime, lastSecond, rawMinute, lastMinute);
@@ -668,7 +716,9 @@ short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay) {
     doc["temp"] = settings.temp;
     doc["quote"] = settings.quote;
     doc["author"] = settings.author;
-    serializeJson(doc, Serial1);
+    size_t bytesWritten = serializeJson(doc, Serial1);
+    Serial.println(bytesWritten);
+    displayUpdateStartTime = currentSecond;
 
 #ifdef ENABLE_EPAPER
     if (normalDisplay && !ePaperDisplay) {
@@ -737,9 +787,10 @@ short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay) {
       ePaperDisplay->println("F");
 #else
 #endif
-      return 2;
+      needUpdate = 2;
+      return needUpdate;
     }
-    return 1;
+    return needUpdate;
 #ifdef ENABLE_EPAPER
   } else if (normalDisplay && !ePaperDisplay) {
 #else
@@ -749,35 +800,12 @@ short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay) {
     ts = *localtime(&rawtime);
     lastSecond = rawtime;
   }
-  return 0;
+  return needUpdate;
 }
-
-float readBattery() {
-  float measuredvbat = analogRead(VBATPIN);
-  //Serial.print("battery volt reading: "); Serial.println(measuredvbat);
-  // measuredvbat = (measuredvbat / 4095)*2*3.3*1.1;
-  measuredvbat /= 4095; // convert to voltage
-  measuredvbat *= 2;    // we get half voltage, so multiply back
-  measuredvbat *= 3.3;  // Multiply by 3.3V, our reference voltage
-  measuredvbat *= 1.1;  // not sure... but this gives better on esp32 then perhaps other processor?
-  return measuredvbat;
-}
-
 
 void displayClock() {
-  //sensors_event_t temp, temp_pressure, temp_humidity;
-  //ms8607.getEvent(&temp_pressure, &temp, &temp_humidity);
-  float temperature = 60;////temp.temperature;
-  float humidity = 50;// temp_humidity.relative_humidity;
-  float battery = readBattery();
-  short needUpdate = roundf(lastTemp) != roundf(temperature);
+  short needUpdate = 0;
 
-  lastTemp = temperature; // so we can track changes in the battey signal
-
-  if (settings.fahrenheit) {
-    // (26.15°C × 9/5) + 32 = 79.07°F
-    temperature = (temperature * 1.8) + 32.0;
-  }
 #ifdef ENABLE_DISPLAY
   display.clearDisplay();
   display.setCursor(0,0);
@@ -792,27 +820,15 @@ void displayClock() {
 #else
   needUpdate = displayTime(needUpdate, lastSecond);
 #endif
-  if (needUpdate) {
-    snprintf(buffer, OUT_BUFFER_SIZE,
-             "%.0f%s, %.0f %%rH, %.1fV\n",
-             temperature, (settings.fahrenheit ? "F" : "C"), humidity, battery);
-#ifdef ENABLE_DISPLAY
-    display.setTextSize(1);
-
-    display.print(buffer);
-
-    display.display();
-#endif
-    if (needUpdate == 2) {
-      // this means at least 1 minute has past since the last update so we'll do things here like also checking alarms and quote updates
-      // as well as updating our epaper if it's enabled
-      Serial.println("check for updated quote");
-      settings.loadQuote(timeClient);
+  if (needUpdate == 2) {
+    // this means at least 1 minute has past since the last update so we'll do things here like also checking alarms and quote updates
+    // as well as updating our epaper if it's enabled
+    Serial.println("check for updated quote");
+    settings.loadQuote(timeClient);
 #ifdef ENABLE_EPAPER
-      //doDisplay = true;
-      //ePaperDisplay.display();
+    //doDisplay = true;
+    //ePaperDisplay.display();
 #endif
-    }
   }
 }
 
@@ -925,7 +941,6 @@ void loop() {
 
     if (ConfigMode) {
       digitalWrite(LED_BLUE_CONFIG, HIGH);
-      digitalWrite(LED_CONFIGURED, LOW);
       enableBLE();
     } else {
       digitalWrite(LED_BLUE_CONFIG, LOW);
@@ -962,7 +977,6 @@ void loop() {
     int offsetSeconds = settings.timezoneOffset();
     timeClient.setTimeOffset(offsetSeconds);
     //Serial.println("offset now update");
-    timeClient.update();
     //Serial.println("called update");
     currentSecond = timeClient.getEpochTime(); // set globally
 
@@ -976,9 +990,23 @@ void loop() {
       //Serial.print(buffer);
 
       if (lastHour < rawHour) {
-        Serial.println("it's been over an hour fetching updated data");
-        settings.fetchQuote(timeClient);
-        settings.fetchWeather(timeClient);
+        if (!IsWiFiOn) {
+          Serial.println("turn Wifi back on");
+          if (!WiFiOn()) { // turn wifi back on
+            Serial.println("something went wrong we can't get updated time");
+          }
+        }
+        if (IsWiFiOn) {
+          // keep clock in sync
+          Serial.println("it's been over an hour fetch updated time, quote and weather as necessary");
+          timeClient.update();
+          settings.fetchQuote(timeClient);
+          settings.fetchWeather(timeClient);
+        }
+      } else {
+        if (IsWiFiOn) {
+          //WiFiOff(); // power down WiFi to save energy
+        }
       }
     }
     prevSecond = currentSecond;

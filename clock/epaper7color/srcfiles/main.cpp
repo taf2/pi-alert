@@ -193,7 +193,7 @@ void setup() {
   delay(2000);
   Serial.print("display cleared\r\n ");
   
-  ePaperDisplay.setRotation(2);  // Set orientation. Goes from 0, 1, 2 or 3
+  ePaperDisplay.setRotation(0);  // Set orientation. Goes from 0, 1, 2 or 3
   ePaperDisplay.setCursor(0,0);
   
   ePaperDisplay.setTextWrap(true);  // By default, long lines of text are set to automatically “wrap” back to the leftmost column.
