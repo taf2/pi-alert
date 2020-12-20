@@ -3,7 +3,8 @@ ROOT_DIR:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 # /dev/cu.SLAB_USBtoUART
 all: detector
 upload: detector
-	pio run -j 2 --target upload --upload-port /dev/cu.usbserial-01D10E63  && sleep 1;  pio device monitor -p /dev/cu.usbserial-01D10E63
+#	pio run -j 2 --target upload --upload-port /dev/cu.usbserial-01D10E63  && sleep 1;  pio device monitor -p /dev/cu.usbserial-01D10E63
+	pio run -j 2 --target upload  && sleep 1;  pio device monitor
 
 detector: targets
 	pio run
@@ -12,7 +13,8 @@ targets: srcfiles/main.cpp
 	ruby build.rb main.cpp
 
 monitor:
-	pio device monitor -p /dev/cu.usbserial-01D10E63
+	#pio device monitor -p /dev/cu.usbserial-01D10E63
+	pio device monitor
 
 configure:
 	pio lib install "Arduino_CRC32"

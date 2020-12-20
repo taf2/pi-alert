@@ -425,7 +425,6 @@ void startSong() {
 void stopSong(bool report=true) {
   digitalWrite(MP3_PWR, LOW); // CUT the power
   Serial.println("stopSong");
-  SongActive   = false;
   if (report) {
     Serial.println("user stop alarm");
     StopSongTime = currentSecond;
@@ -439,6 +438,7 @@ void stopSong(bool report=true) {
     snoozeActivated = false;
     snoozedAt = 0;
   }
+  SongActive   = false;
 }
 
 void initButtons() {
@@ -503,7 +503,6 @@ void enableBLE() {
     // gatt.client_characteristic_configuration
     //pRxC->addDescriptor(new BLE2902());
     pRxC->addDescriptor(&client_characteristic_configuration);
-
 
     pRxC->setCallbacks(new MyCallbacks());
 
@@ -649,6 +648,11 @@ void setup() {
 #endif
   }
 
+  if (digitalRead(MP3_PWR)) {
+    Serial.println("we see mp3 is running maybe we fell asleep and started again?");
+    SongActive = true; // light sleep restore SongActive state
+  }
+
 }
 
 // returns 0 no updates, returns 1 only lcd updates, returns 2 both lcd and epaper updates
@@ -674,12 +678,10 @@ short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay) {
    */
   bool needPower = (needUpdate > 0) || (secondsInMinute > 49 || secondsInMinute < 21) || (drawingSeconds < 20);
   // when it needs power
-  if (needPower || SongActive) { // power on within the update window or if we're playing the music for the alarm
+  if (needPower || SongActive || deviceConnected) { // power on within the update window or if we're playing the music for the alarm
     gpio_hold_dis((gpio_num_t)EPAPER_POWER_ON);
     digitalWrite(EPAPER_POWER_ON, HIGH);
-    Serial.println("power up");
   } else {
-    Serial.println("power down");
   // when it's safe to turn it off
     digitalWrite(EPAPER_POWER_ON, LOW);
     gpio_hold_en((gpio_num_t)EPAPER_POWER_ON);
@@ -957,8 +959,8 @@ void loop() {
 
   if (snooze_button_pressed) {
     Serial.println("pressed snooze");
+    stopSong();
     if (SongActive) {
-      stopSong();
       didSnoozeStart  = false;
       snoozeActivated = true;
       snoozedAt       = currentSecond;

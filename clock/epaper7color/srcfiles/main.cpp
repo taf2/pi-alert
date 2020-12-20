@@ -166,7 +166,7 @@ short displayTime(short needUpdate, time_t currentSecond, const char *quote, con
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
-  //while (!Serial) delay(10);     // will pause Zero, Leonardo, etc until serial console opens
+//  while (!Serial) delay(10);     // will pause Zero, Leonardo, etc until serial console opens
 
   Serial1.begin(9600);
 
@@ -201,6 +201,8 @@ void setup() {
   ePaperDisplay.setTextColor(GxEPD_BLACK);  // Set color for text
 
   ePaperDisplay.fillScreen(GxEPD_WHITE);  // Clear previous graphics to start over to print new things.
+// this helps reset the display if we're seeing ghosting
+//  ePaperDisplay.display();
 }
 
 void loop() {
