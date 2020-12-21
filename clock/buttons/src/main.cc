@@ -24,12 +24,7 @@ void setup() {
   pinMode(USER2_BUTTON_PIN, INPUT_PULLDOWN);
   pinMode(ALARM_BUTTON_LED, OUTPUT);
   pinMode(SNOOZE_BUTTON_LED, OUTPUT);
-  if (digitalRead(USER_BUTTON_PIN)) {
-    Serial.println("user input error!");
-  }
-  if (digitalRead(USER2_BUTTON_PIN)) {
-    Serial.println("user2 input error!");
-  }
+
   digitalWrite(ALARM_BUTTON_LED, LOW);
   digitalWrite(SNOOZE_BUTTON_LED, LOW);
   digitalWrite(EPAPER_POWER_ON, LOW);
@@ -46,7 +41,7 @@ void loop() {
   if (digitalRead(USER2_BUTTON_PIN)) { snooze_button_pressed = true; }
 
   if (alarm_stop_button_pressed) {
-    Serial.println("pressed B");
+    Serial.println("alarm stop pressed");
     button_delay = true;
     if (digitalRead(ALARM_BUTTON_LED)) {
       digitalWrite(EPAPER_POWER_ON, LOW);
@@ -60,7 +55,7 @@ void loop() {
   }
 
   if (snooze_button_pressed) {
-    Serial.println("pressed snooze");
+    Serial.println("snooze pressed");
     button_delay = true;
     if (digitalRead(SNOOZE_BUTTON_LED)) {
       digitalWrite(MP3_PWR, LOW);
