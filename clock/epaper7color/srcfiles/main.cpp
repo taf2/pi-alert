@@ -17,6 +17,7 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <ArduinoJson.h>
+#include <Adafruit_DotStar.h>
 
 #include "epdif.h"
 #include "imagedata.h"
@@ -36,6 +37,12 @@
 #include <Fonts/FreeMonoBold18pt7b.h>
 #include <Fonts/FreeMonoBold24pt7b.h>
 #include "Roboto_Regular78pt7b.h"
+
+#define NUMPIXELS 1
+#define DATAPIN 8
+#define CLOCKPIN 6
+
+Adafruit_DotStar strip = Adafruit_DotStar(NUMPIXELS, DATAPIN, CLOCKPIN, DOTSTAR_BGR);
 
 // seems Adafruit_GFX maybe only supports 3 colors but we have a 7 color display... we'll find out
 GxEPD2_3C<GxEPD2_565c, GxEPD2_565c::HEIGHT> ePaperDisplay(GxEPD2_565c(/*CS=10*/ CS_PIN, /*DC=*/ DC_PIN, /*RST=*/ RST_PIN, /*BUSY=*/ BUSY_PIN)); // GDEW075Z08 800x480
@@ -170,6 +177,10 @@ void setup() {
 
   Serial1.begin(9600);
 
+  strip.begin();
+  strip.setPixelColor(0, 0, 0, 16);
+  strip.show();
+
   pinMode(A0, OUTPUT);
   digitalWrite(A0, LOW);
     
@@ -215,7 +226,12 @@ void loop() {
     // Read the JSON document from the "link" serial port
     DeserializationError err = deserializeJson(doc, Serial1);
 
+    strip.setPixelColor(0, 127, 255, 0);
+    strip.show();
+
     if (err == DeserializationError::Ok) {
+      strip.setPixelColor(0, 0, 255, 0);
+      strip.show();
       digitalWrite(A0, HIGH);
       Serial.println("received doc");
       //rainbow(10);             // Flowing rainbow cycle along the whole strip
@@ -229,29 +245,40 @@ void loop() {
   */
       // Print the values
       // (we must use as<T>() to resolve the ambiguity)
-      long time = doc["time"].as<long>();
-      int temp = doc["temp"].as<int>();
-      if (time > 0) {
-        Serial.print("time = ");
-        Serial.println(time);
-        Serial.print("temp = ");
-        Serial.println(temp);
+      bool clear = doc["clear"].as<bool>();
+      if (clear) {
+        strip.setPixelColor(0, 0, 0, 255);
+        strip.show();
+        ePaperDisplay.fillScreen(GxEPD_WHITE);  // Clear previous graphics to start over to print new things.
+      // this helps reset the display if we're seeing ghosting
+        ePaperDisplay.display();
+      } else {
+        long time = doc["time"].as<long>();
+        int temp = doc["temp"].as<int>();
+        if (time > 0) {
+          Serial.print("time = ");
+          Serial.println(time);
+          Serial.print("temp = ");
+          Serial.println(temp);
 
-        const String quote = doc["quote"].as<String>();
-        const String author = doc["author"].as<String>();
+          const String quote = doc["quote"].as<String>();
+          const String author = doc["author"].as<String>();
 
-        Serial.print("quote = ");
-        Serial.println(quote);
+          Serial.print("quote = ");
+          Serial.println(quote);
 
-        Serial.print("author = ");
-        Serial.println(author);
- 
-        if (displayTime(1, time, quote.c_str(), author.c_str(), temp) == 2) {
-          ePaperDisplay.display();
+          Serial.print("author = ");
+          Serial.println(author);
+   
+          if (displayTime(1, time, quote.c_str(), author.c_str(), temp) == 2) {
+            ePaperDisplay.display();
+          }
         }
       }
       digitalWrite(A0, LOW);
     } else {
+      strip.setPixelColor(0, 255, 0, 0);
+      strip.show();
       digitalWrite(A0, LOW);
       // Print error to the "debug" serial port
       Serial.print("deserializeJson() returned ");
@@ -261,5 +288,8 @@ void loop() {
       while (Serial1.available() > 0)
         Serial1.read();
     }
+  } else {
+    strip.setPixelColor(0, 0, 0, 8);
+    strip.show();
   }
 }
