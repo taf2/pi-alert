@@ -175,9 +175,16 @@ void setup() {
   Serial.begin(9600);
 //  while (!Serial) delay(10);     // will pause Zero, Leonardo, etc until serial console opens
 
-  Serial1.begin(9600);
-
   strip.begin();
+  Serial1.begin(9600);
+/*  while (!Serial1) {
+    strip.setPixelColor(0, 16, 0, 0);
+    strip.show();
+    delay(100);
+    strip.setPixelColor(0, 0, 0, 16);
+    strip.show();
+  }*/
+
   strip.setPixelColor(0, 0, 0, 16);
   strip.show();
 

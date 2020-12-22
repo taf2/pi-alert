@@ -402,7 +402,6 @@ void setup() {
 // normalDisplay is so we can run this in the main loop for an lcd but also in an epaper loop
 //int displayTime(short needUpdate, NTPClient &tc, time_t &lastSecond, bool normalDisplay) {
 short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay) {
-  char buf[80];
   time_t rawtime = currentSecond;//tc.getEpochTime();
   int rawMinute = (int)(rawtime / 60);
   int lastMinute = (int)(lastSecond / 60);
@@ -448,7 +447,6 @@ short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay) {
     struct tm  ts;
     ts = *localtime(&rawtime);
     lastSecond = rawtime;
-    strftime(buf, sizeof(buf), "%l:%M %p\n", &ts);
 
     //  the epaper display is too big for us to also include on this board so we'll write to serial here instead
     Serial.println("write to Serial1");
@@ -461,11 +459,6 @@ short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay) {
     Serial.println(bytesWritten);
     displayUpdateStartTime = currentSecond;
 
-    if (normalDisplay) {
-    }
-    strftime(buf, sizeof(buf), "%a %b, %d\n", &ts);
-    if (normalDisplay) {
-    }
     if (epaper_update) {
       needUpdate = 2;
       return needUpdate;
@@ -606,18 +599,10 @@ void loop() {
   }
 
   if (snooze_button_pressed && alarm_button_pressed) {
-    memset(settings.ssid, 0, 32);
-    memset(settings.pass, 0, 32);
-    memset(settings.quote, 0, 256);
-    memset(settings.author, 0, 32);
-    memset(settings.zipcode, 0, 8);
-    memset(settings.weatherAPI, 0, 34);
-    settings.temp = 0;
-    settings.feels_like = 0;
-    settings.hour = 0;
-    settings.minute = 0;
-    settings.save();
-
+    // clear the display
+    StaticJsonDocument<64> doc;
+    doc["clear"] = true;
+    size_t bytesWritten = serializeJson(doc, Serial1);
     delay(5000);
   } else if (DidInitWifi) {
     displayClock();

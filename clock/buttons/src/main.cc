@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <ArduinoJson.h>
 
 #define VBATPIN A13
 #define EPAPER_POWER_ON 12 // control power to the display epaper control ItsyBitsy board
@@ -12,6 +13,8 @@
 
 void setup() {
   Serial.begin(115200);
+  Serial1.begin(9600); // communications to the epaper ItsyBitsy
+
   pinMode(EPAPER_POWER_ON, OUTPUT);
   pinMode(LED_BLUE_CONFIG, OUTPUT);
   pinMode(BUZZER, OUTPUT);
@@ -27,10 +30,12 @@ void setup() {
 
   digitalWrite(ALARM_BUTTON_LED, LOW);
   digitalWrite(SNOOZE_BUTTON_LED, LOW);
-  digitalWrite(EPAPER_POWER_ON, LOW);
+  digitalWrite(EPAPER_POWER_ON, HIGH);
   digitalWrite(MP3_PWR, LOW);
   digitalWrite(LED_BLUE_CONFIG, LOW);
 }
+
+short test_seq = 0;
 
 void loop() {
   bool button_delay = false;
@@ -43,14 +48,39 @@ void loop() {
   if (alarm_stop_button_pressed) {
     Serial.println("alarm stop pressed");
     button_delay = true;
-    if (digitalRead(ALARM_BUTTON_LED)) {
+    if (digitalRead(ALARM_BUTTON_LED) && test_seq == 0) {
       digitalWrite(EPAPER_POWER_ON, LOW);
       digitalWrite(ALARM_BUTTON_LED, LOW);
-      digitalWrite(LED_BLUE_CONFIG, HIGH);
+      digitalWrite(LED_BLUE_CONFIG, LOW);
     } else {
       digitalWrite(EPAPER_POWER_ON, HIGH);
+      delay(1000); // give the device 1 second to start up and then send the serial message
       digitalWrite(ALARM_BUTTON_LED, HIGH);
-      digitalWrite(LED_BLUE_CONFIG, LOW);
+      digitalWrite(LED_BLUE_CONFIG, HIGH);
+
+      if (test_seq == 0) {
+        Serial.println("write to Serial1");
+        StaticJsonDocument<1024> doc;
+        doc["time"] = 1608604137;
+        doc["temp"] = 32;
+        doc["quote"] = "awesome stuff";
+        doc["author"] = "me";
+        size_t bytesWritten = serializeJson(doc, Serial1);
+        Serial.println(bytesWritten);
+      } else {
+        Serial.println("write to Serial1");
+        StaticJsonDocument<1024> doc;
+        doc["clear"] = true;
+        size_t bytesWritten = serializeJson(doc, Serial1);
+        Serial.println(bytesWritten);
+      }
+      Serial.print("test seq:");
+      Serial.println(test_seq);
+
+      ++test_seq;
+      if (test_seq > 2) { // allow clear twice
+        test_seq = 0;
+      }
     }
   }
 
