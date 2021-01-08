@@ -125,6 +125,7 @@ void EEPROMSettings::fetchWeather(NTPClient &timeClient) {
 	}
   String body = http.getString();
   http.end();
+  // TODO: get the weather icon
   /*
    * {"coord":{"lon":-76.56,"lat":39.08},
    *  "weather":[{"id":802,"main":"Clouds","description":"scattered clouds","icon":"03d"}],

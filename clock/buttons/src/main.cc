@@ -11,6 +11,7 @@
 #define SNOOZE_BUTTON_LED 32
 #define BUZZER 33
 
+
 void setup() {
   Serial.begin(115200);
   Serial1.begin(9600); // communications to the epaper ItsyBitsy
@@ -42,6 +43,20 @@ void loop() {
   bool alarm_stop_button_pressed = false;
   bool snooze_button_pressed = false;
 
+  if (Serial1.available()) {
+    StaticJsonDocument<128> doc;
+    DeserializationError err = deserializeJson(doc, Serial1);
+    if (err == DeserializationError::Ok) {
+      Serial.println("received doc");
+      const String status = doc["status"].as<String>();
+      if (status == "success") {
+        Serial.println("success");
+      } else {
+        Serial.println("error");
+      }
+    }
+  }
+
   if (digitalRead(USER_BUTTON_PIN)) { alarm_stop_button_pressed = true; }
   if (digitalRead(USER2_BUTTON_PIN)) { snooze_button_pressed = true; }
 
@@ -62,6 +77,8 @@ void loop() {
         Serial.println("write to Serial1");
         StaticJsonDocument<1024> doc;
         doc["time"] = 1608604137;
+        doc["ftime"] = "10:30";
+        doc["fdate"] = "Dec 29th";
         doc["temp"] = 32;
         doc["quote"] = "awesome stuff";
         doc["author"] = "me";

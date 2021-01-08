@@ -16,6 +16,7 @@
 #include <time.h>
 #include <Wire.h>
 #include <SPI.h>
+#include <StreamUtils.h>
 #include <ArduinoJson.h>
 #include <Adafruit_DotStar.h>
 
@@ -47,127 +48,93 @@ Adafruit_DotStar strip = Adafruit_DotStar(NUMPIXELS, DATAPIN, CLOCKPIN, DOTSTAR_
 // seems Adafruit_GFX maybe only supports 3 colors but we have a 7 color display... we'll find out
 GxEPD2_3C<GxEPD2_565c, GxEPD2_565c::HEIGHT> ePaperDisplay(GxEPD2_565c(/*CS=10*/ CS_PIN, /*DC=*/ DC_PIN, /*RST=*/ RST_PIN, /*BUSY=*/ BUSY_PIN)); // GDEW075Z08 800x480
 //#endif
-time_t lastSecond;
 const unsigned short MaxTextWidth = 528; // max length that we want to allow a line to draw
 const unsigned short MaxChars = 38; // we computed 38 characters was 528 length line and that seems good
 
 // returns 0 no updates, returns 1 only lcd updates, returns 2 both lcd and epaper updates
 // normalDisplay is so we can run this in the main loop for an lcd but also in an epaper loop
-short displayTime(short needUpdate, time_t currentSecond, const char *quote, const char *author, const int temp) {
-  char buf[80];
-  const time_t rawtime = currentSecond;
-  const int rawMinute = (int)(rawtime/60);
-  const int lastMinute = (int)(lastSecond/60);
-  Serial.print("lastSecond: ");
-  Serial.println((long)lastSecond);
-  Serial.print("rawtime: ");
-  Serial.println((long)rawtime);
-  lastSecond = rawtime;
-  if (needUpdate ||  rawMinute > lastMinute) {
-    const bool epaper_update = (rawMinute > lastMinute);
-    //snprintf(buffer, 1024,
-    //         "rawtime: %ld, lastSecond: %ld, rm: %d lm: %d\n", rawtime, lastSecond, rawMinute, lastMinute);
-    //Serial.print(buffer);
-    struct tm  ts;
-    ts = *localtime(&rawtime);
-    strftime(buf, sizeof(buf), "%l:%M %p\n", &ts);
-    if (epaper_update) {
-      Serial.print("update epaper with buf: ");
-      Serial.println(buf);
-      //ePaperDisplay.getTextBounds(buf, 0, 32, &x1, &y1, &w, &h);
-      //ePaperDisplay.fillRect(0, 32, w, h, GxEPD_WHITE);
-      ePaperDisplay.fillScreen(GxEPD_WHITE);  // Clear previous graphics to start over to print new things.
-      //ePaperDisplay.setPartialWindow(0, 0, ePaperDisplay.width(), ePaperDisplay.height());
-      ePaperDisplay.setFont(&Roboto_Regular78pt7b);  // Set font
-      ePaperDisplay.setCursor(100, 220);  // Set the position to start printing text (x,y)
-      strftime(buf, sizeof(buf), "%l:%M", &ts);
-      ePaperDisplay.println(buf);  // Print some text
-    }
-    strftime(buf, sizeof(buf), "%a %b, %d\n", &ts);
-    if (epaper_update) {
-      /*int16_t  x1, y1;
-      uint16_t w, h;
-      ePaperDisplay.setFont(&FreeMono18pt7b);  // Set font
-      ePaperDisplay.getTextBounds(buf, 0, 32, &x1, &y1, &w, &h);
-      ePaperDisplay.fillRect(0, 32, w, h, GxEPD_WHITE);
-      */
-      ePaperDisplay.setCursor(25, 50);  // Set the position to start printing text (x,y)
-      ePaperDisplay.setFont(&FreeMono18pt7b);  // Set font
-      ePaperDisplay.println(buf);  // print the date
-      Serial.print("update epaper with buf: ");
-      Serial.println(buf);
-      //yield();
-      // print a quote if we have one
-      if (strlen(quote) > 0) {
-        ePaperDisplay.setCursor(25, 270);  // Set the position to start printing text (x,y)
-        ePaperDisplay.setFont(&FreeMono12pt7b);  // Set font
-        {
-          //int16_t x1, y1;
-          //uint16_t w, h;
-          //ePaperDisplay.getTextBounds("The very essence of leadership is that", 25, 290, &x1, &y1, &w, &h);
-          /*Serial.println("bounding box for a max length line:");
-          Serial.println(x1);
-          Serial.println(y1);
-          Serial.println(w);
-          Serial.println(h);
-          */
-          char *outputQuote = (char*)quote;
-          char outputBuffer[40];
-          while (strlen(outputQuote) > MaxChars) {
-            memcpy(outputBuffer, outputQuote, MaxChars);
-            outputBuffer[MaxChars] = '\0';
-            if (outputQuote[0] == ' ') {
-              ePaperDisplay.setCursor(15, ePaperDisplay.getCursorY());  // Set the position to start printing text (x,y)
-            } else {
-              ePaperDisplay.setCursor(25, ePaperDisplay.getCursorY());  // Set the position to start printing text (x,y)
-            }
-            ePaperDisplay.println(outputBuffer);  // print out what ever is left over
-            outputQuote += MaxChars; // move the pointer to max chars
-          }
-          if (strlen(outputQuote)) {
-            if (outputQuote[0] == ' ') {
-              ePaperDisplay.setCursor(15, ePaperDisplay.getCursorY());  // Set the position to start printing text (x,y)
-            } else {
-              ePaperDisplay.setCursor(25, ePaperDisplay.getCursorY());  // Set the position to start printing text (x,y)
-            }
-            ePaperDisplay.println(outputQuote);  // print out what ever is left over
-          }
-          /*do {
-            ePaperDisplay.getTextBounds(quote, 25, 290, &x1, &y1, &w, &h);
-            if (w > 528) {
-                
-            }
-          } while (w > 528);
-          */
+void displayTime(const char *quote,
+                 const char *author,
+                 const int temp,
+                 const char *formattedTime,
+                 const char *ampm,
+                 const char *formattedDate) {
 
-          /*
-           *
-            x1 -> 27
-            y1 -> 276
-            w -> 528
-            h -> 19
-           */
-          //ePaperDisplay.println(quote);  // print the quote
+  ePaperDisplay.fillScreen(GxEPD_WHITE);
+  ePaperDisplay.setFont(&Roboto_Regular78pt7b);
+  ePaperDisplay.setCursor(60, 220);
+  ePaperDisplay.print(formattedTime);
+  ePaperDisplay.setFont(&FreeMonoBold24pt7b);
+  ePaperDisplay.setCursor(410, 140);
+  ePaperDisplay.println(ampm);
+
+  ePaperDisplay.setCursor(25, 50);
+  ePaperDisplay.setFont(&FreeMono18pt7b);
+  ePaperDisplay.println(formattedDate);
+  if (strlen(quote) > 0) {
+    ePaperDisplay.setCursor(25, 270);  // Set the position to start printing text (x,y)
+    ePaperDisplay.setFont(&FreeMono12pt7b);  // Set font
+    {
+      //int16_t x1, y1;
+      //uint16_t w, h;
+      //ePaperDisplay.getTextBounds("The very essence of leadership is that", 25, 290, &x1, &y1, &w, &h);
+      /*Serial.println("bounding box for a max length line:");
+      Serial.println(x1);
+      Serial.println(y1);
+      Serial.println(w);
+      Serial.println(h);
+      */
+      char *outputQuote = (char*)quote;
+      char outputBuffer[40];
+      while (strlen(outputQuote) > MaxChars) {
+        memcpy(outputBuffer, outputQuote, MaxChars);
+        outputBuffer[MaxChars] = '\0';
+        if (outputQuote[0] == ' ') {
+          ePaperDisplay.setCursor(15, ePaperDisplay.getCursorY());  // Set the position to start printing text (x,y)
+        } else {
+          ePaperDisplay.setCursor(25, ePaperDisplay.getCursorY());  // Set the position to start printing text (x,y)
         }
-        //ePaperDisplay.print("by: ");  // print the author
-        //ePaperDisplay.println("");  // print the author
-        ePaperDisplay.setCursor(50, ePaperDisplay.getCursorY()+19);  // Set the position to start printing text (x,y)
-        ePaperDisplay.println(author);  // print the author
-        Serial.print("update epaper with quote & author: ");
-        Serial.println(quote);
-        Serial.println(author);
+        ePaperDisplay.println(outputBuffer);  // print out what ever is left over
+        outputQuote += MaxChars; // move the pointer to max chars
       }
-      // display temperature
-      ePaperDisplay.setCursor(480, 50);
-      ePaperDisplay.setFont(&FreeMono18pt7b);
-      ePaperDisplay.print(temp);
-      ePaperDisplay.println("F");
-      return 2;
+      if (strlen(outputQuote)) {
+        if (outputQuote[0] == ' ') {
+          ePaperDisplay.setCursor(15, ePaperDisplay.getCursorY());  // Set the position to start printing text (x,y)
+        } else {
+          ePaperDisplay.setCursor(25, ePaperDisplay.getCursorY());  // Set the position to start printing text (x,y)
+        }
+        ePaperDisplay.println(outputQuote);  // print out what ever is left over
+      }
+      /*do {
+        ePaperDisplay.getTextBounds(quote, 25, 290, &x1, &y1, &w, &h);
+        if (w > 528) {
+            
+        }
+      } while (w > 528);
+      */
+
+      /*
+       *
+        x1 -> 27
+        y1 -> 276
+        w -> 528
+        h -> 19
+       */
+      //ePaperDisplay.println(quote);  // print the quote
     }
-    return 1;
+    //ePaperDisplay.print("by: ");  // print the author
+    //ePaperDisplay.println("");  // print the author
+    ePaperDisplay.setCursor(50, ePaperDisplay.getCursorY()+19);  // Set the position to start printing text (x,y)
+    ePaperDisplay.println(author);  // print the author
+    Serial.print("update epaper with quote & author: ");
+    Serial.println(quote);
+    Serial.println(author);
   }
-  lastSecond = rawtime;
-  return 0;
+  // display temperature
+  ePaperDisplay.setCursor(480, 50);
+  ePaperDisplay.setFont(&FreeMono18pt7b);
+  ePaperDisplay.print(temp);
+  ePaperDisplay.println("F");
 }
 
 void setup() {
@@ -259,7 +226,9 @@ void loop() {
         ePaperDisplay.fillScreen(GxEPD_WHITE);  // Clear previous graphics to start over to print new things.
       // this helps reset the display if we're seeing ghosting
         ePaperDisplay.display();
+        Serial1.write("0");
       } else {
+        Serial.println("display to screen");
         long time = doc["time"].as<long>();
         int temp = doc["temp"].as<int>();
         if (time > 0) {
@@ -270,16 +239,26 @@ void loop() {
 
           const String quote = doc["quote"].as<String>();
           const String author = doc["author"].as<String>();
+          const String ftime = doc["ftime"].as<String>();
+          const String ampm = doc["ampm"].as<String>();
+          const String fdate = doc["fdate"].as<String>();
 
           Serial.print("quote = ");
           Serial.println(quote);
 
           Serial.print("author = ");
           Serial.println(author);
+
+          Serial.print("ftime = ");
+          Serial.println(ftime);
    
-          if (displayTime(1, time, quote.c_str(), author.c_str(), temp) == 2) {
-            ePaperDisplay.display();
-          }
+          displayTime(quote.c_str(), author.c_str(), temp, ftime.c_str(), ampm.c_str(), fdate.c_str());
+          ePaperDisplay.display();
+          Serial.println("display success");
+          Serial1.write("0");
+        } else {
+          Serial.println("received a 0 time doc???");
+          Serial1.write("1");
         }
       }
       digitalWrite(A0, LOW);
@@ -292,8 +271,9 @@ void loop() {
       Serial.println(err.c_str());
 
       // Flush all bytes in the "link" serial port buffer
-      while (Serial1.available() > 0)
+      while (Serial1.available() > 0) {
         Serial1.read();
+      }
     }
   } else {
     strip.setPixelColor(0, 0, 0, 8);

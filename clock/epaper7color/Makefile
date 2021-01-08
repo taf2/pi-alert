@@ -2,7 +2,7 @@ ROOT_DIR:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 
 all: epaper
 upload: epaper
-	pio run -j 2 --target upload --upload-port /dev/cu.usbmodem14201 && sleep 3;  pio device monitor -p /dev/cu.usbmodem14201
+	pio run -j 2 --target upload --upload-port /dev/cu.usbmodem14101 && sleep 3;  pio device monitor -p /dev/cu.usbmodem14101
 #	pio run -j 2 --target upload && sleep 3;  pio device monitor
 
 epaper: targets

@@ -5,7 +5,6 @@
 	the oled display will continue to be attached and we'll have a night option since clocks suck at night they're too bright
 	we'll have the primary display be an epaper 5.65 " display with epaper, we'll dialy update the quote to inspire everyone
 	*/
-//#define ENABLE_EPAPER 1
 #include <time.h>
 #include <SPI.h>
 #include <Wire.h>
@@ -230,6 +229,11 @@ bool initWiFi(const char *ssid, const char *password) {
   Serial.println(ip);
   snprintf(buffer, OUT_BUFFER_SIZE, "Connected to %s with %s\n", ssid, ip.toString().c_str());
   Serial.print(buffer);
+  WiFi.waitForConnectResult();
+  Serial.println(WiFi.dnsIP());
+  WiFi.config(WiFi.localIP(), WiFi.gatewayIP(), WiFi.subnetMask(), IPAddress(8,8,8,8));
+  delay(10);
+  Serial.println(WiFi.dnsIP());
   delay(2000);
 
   // initialize time
@@ -425,13 +429,26 @@ short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay) {
     gpio_hold_en((gpio_num_t)EPAPER_POWER_ON);
     gpio_hold_en((gpio_num_t)MP3_PWR);
     // light sleep until 10 seconds before the top of the minute
-    int sleepFor = 50 - secondsInMinute;
+    // recompute these values 1 time to ensure we have a good reading before light sleeping
+    timeClient.update();
+    rawtime = currentSecond = timeClient.getEpochTime();
+    rawMinute = (int)(rawtime / 60);
+    lastMinute = (int)(lastSecond / 60);
+    secondsInMinute = (int)(rawtime % 60);
+    int sleepFor = 50 - secondsInMinute - 3; // for the pending delay output before sleep we can remove this ?
     if (sleepFor > 10) { //  don't bother if it's less then 10 seconds
       Serial.println("light sleep");
+      Serial.println(sleepFor);
+      Serial.println(currentSecond);
+      delay(3);
       // the problem with doing this sleep is then we can't power off easily on the epaper board and it makes a crackling sound with the df mini player gets current
       // esp_sleep_enable_ext0_wakeup // use this to allow disabling this power saving feature by pressing a button to keep ble / wifi on for configuration
       esp_sleep_enable_timer_wakeup( sleepFor * 1000000ULL);
       esp_light_sleep_start();
+      // now that we are awake update currentSecond
+      timeClient.update();
+      currentSecond = timeClient.getEpochTime();
+      Serial.println(currentSecond);
     }
   }
 
@@ -451,6 +468,14 @@ short displayTime(short needUpdate, time_t &lastSecond, bool normalDisplay) {
     //  the epaper display is too big for us to also include on this board so we'll write to serial here instead
     Serial.println("write to Serial1");
     StaticJsonDocument<1024> doc;
+
+		char buf[80];
+    strftime(buf, sizeof(buf), "%l:%M\n", &ts);
+    doc["ftime"] = buf;
+    strftime(buf, sizeof(buf), "%p\n", &ts);
+    doc["ampm"] = buf;
+    strftime(buf, sizeof(buf), "%a %b, %d\n", &ts);
+    doc["fdate"] = buf;
     doc["time"] = currentSecond;
     doc["temp"] = settings.temp;
     doc["quote"] = settings.quote;
@@ -481,6 +506,13 @@ void displayClock() {
     // as well as updating our epaper if it's enabled
     Serial.println("check for updated quote");
     settings.loadQuote(timeClient);
+  }
+  if (Serial1.available()) {
+    int inByte = Serial1.read();
+    Serial.print("read bytes :");
+    Serial.println(inByte);
+    // if we receive a 0 it's success and we can power down light sleep 
+    // if we receive a 1 something went wrong and we should try to do something to indicate an error
   }
 }
 

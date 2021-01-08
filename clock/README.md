@@ -22,3 +22,21 @@ An ePaper clock with a music alarm configured via Bluetooth low energy using a I
 * [Adafruit Perma-Proto Half-sized Breadboard PCB - Single](https://www.adafruit.com/product/1609)
 * [Mini Oval Speaker - 8 Ohm 1 Watt](https://www.adafruit.com/product/3923)
 * blue led for internal indicator for BLE with a resistor
+
+
+# Preparing the images
+
+Trying to figure out the available colors from https://www.waveshare.com/5.65inch-e-paper-module-f.htm
+
+back
+white
+8f1c1f red
+216627 green
+1a1d52 blue
+d4c93b yellow
+c27831 orange
+
+Using ImageMagick via https://learn.adafruit.com/preparing-graphics-for-e-ink-displays?view=all#command-line
+
+# Resolution
+600 x 448
