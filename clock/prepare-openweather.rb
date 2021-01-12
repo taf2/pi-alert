@@ -7,5 +7,14 @@ Dir["icons/*.png"].each {|icon|
   bmp = icon.gsub(/\.png$/,'.bmp')
   puts "converting: #{icon.inspect} to #{bmp.inspect}"
 
-  system("convert #{icon} -dither FloydSteinberg -define dither:diffusion-amount=85% -remap eink-3color.png -type truecolor BMP3:#{bmp}")
+  # for 3 color eink
+  #system("convert #{icon} -dither FloydSteinberg -define dither:diffusion-amount=85% -remap eink-3color.png -type truecolor BMP3:#{bmp}")
+
+  # for 7 color eink see pallet.js
+  system("convert #{icon} -dither FloydSteinberg -define dither:diffusion-amount=85% -remap eink-7color.png -type truecolor BMP3:#{bmp}")
+}
+
+Dir["icons/*.bmp"].each {|bmp|
+  name = File.basename(bmp).split(".").first
+  system("node converter.js -f arduino -m horizontal565 -b transparent -n icon#{name} -i '#{bmp}' -o epaper7color/src/#{name}.h")
 }

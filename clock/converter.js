@@ -151,7 +151,7 @@ class ConversionFunctions {
       var firstByte = (rgb >> 8) & 0xff;
       var secondByte = rgb & 0xff;
 
-      const byteSet = rgb.toString(16);
+      let byteSet = rgb.toString(16);
       while(byteSet.length < 4){ byteSet = "0" + byteSet; }
       output_string += "0x" + byteSet + ", ";
 
@@ -292,9 +292,10 @@ const settings = {
   threshold: argv.threshold || 128,
   outputFormat: argv.format || "plain",
   invertColors: false,
-  conversionFunction: ConversionFunctions[argv.drawMode] || ConversionFunctions.horizontal1bit,
+  conversionFunction: ConversionFunctions[argv.mode] || ConversionFunctions.horizontal1bit,
   identifier: argv.name || "myBitmap"
 };
+console.log(argv, settings.conversionFunction);
 
 // Make the canvas black and white
 function blackAndWhite(canvas, ctx){
@@ -497,8 +498,8 @@ function outputString() {
         + getIdentifier()
         + "Glyphs [] PROGMEM = {\n";
 
-      var firstAschiiChar = document.getElementById("first-ascii-char").value;
-      var xAdvance = parseInt(document.getElementById("x-advance").value);
+      var firstAschiiChar = 48; // TODO: make this configuratble //document.getElementById("first-ascii-char").value;
+      var xAdvance = 0; // TODO: make this configurable //parseInt(document.getElementById("x-advance").value);
       var offset = 0;
       code = "";
 
@@ -716,7 +717,7 @@ function getType() {
 
 try {
   (async function() {
-    console.log(argv);
+    //console.log(argv);
     await handleImageSelection();
     const output = outputString();
     console.log(`writing: ${argv.output}`);

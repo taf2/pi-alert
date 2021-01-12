@@ -19,6 +19,24 @@
 #include <StreamUtils.h>
 #include <ArduinoJson.h>
 #include <Adafruit_DotStar.h>
+#include "01d.h"
+#include "01n.h"
+#include "02d.h"
+#include "02n.h"
+#include "03d.h"
+#include "03n.h"
+#include "04d.h"
+#include "04n.h"
+#include "09d.h"
+#include "09n.h"
+#include "10d.h"
+#include "10n.h"
+#include "11d.h"
+#include "11n.h"
+#include "13d.h"
+#include "13n.h"
+#include "50d.h"
+#include "50n.h"
 
 #include "epdif.h"
 #include "imagedata.h"
@@ -188,6 +206,10 @@ void setup() {
   ePaperDisplay.fillScreen(GxEPD_WHITE);  // Clear previous graphics to start over to print new things.
 // this helps reset the display if we're seeing ghosting
 //  ePaperDisplay.display();
+//  // test 02d
+  ePaperDisplay.print("hello");
+  ePaperDisplay.drawRGBBitmap(10, 10, icon02d , 100, 100);//,  0x0000);
+  ePaperDisplay.display();
 }
 
 void loop() {
