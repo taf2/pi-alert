@@ -621,7 +621,8 @@ void loop() {
       if (lastHour < rawHour) {
         // keep clock in sync
         Serial.println("it's been over an hour fetch updated time, quote and weather as necessary");
-        timeClient.update();
+        timeClient.begin(); // force udp re-init we light sleep so trying to ensure we get re-synced and avoid clock skew
+        timeClient.forceUpdate();
         settings.fetchQuote(timeClient);
         settings.fetchWeather(timeClient);
       }
