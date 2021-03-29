@@ -14,16 +14,12 @@
      the red LED pulse. This means it is ready to receive data
   6) Click the upload button above within 10 seconds
 */
-//#define RELAY 3 // this  is the EN pin on the liposhim or other powerboost 
-#define RELAY 4 // in later revisions we have moved the pin to 4 for better placement on the zero lip shim hat\
-
-//#define VLED A2 // the LED that we can see through the camera lense
-#define VLED A3 // moved in later revisons for better placement on the zero lipo shim hat same with RELAY to 4
-
+#define RPI A0 // single to the raspberry pi pin 37/GPIO 26 that it should start the shutdown sequence PIN #0
+#define LOWBAT 0 // white wire from PG pin on verter 5v to trinket PIN #1
+#define PHOTOCELL A1 // CDS photocell connected to this A1 pin on trinket PIN #2
+#define VLED A3 // External LED that we can see through the camera face PIN #3 
+#define RELAY 4 // EN pin on the verter 5v, PIN #4
 #define LED 1 // pulse 'digital' pin 1 - AKA the built in red LED  - this just appears inside the box  
-#define PHOTOCELL A1 // CdS photocell connected to this ANALOG 1 pin # which is PIN 2
-#define LOWBAT 0 // white wire from LB pin on powerboost 1000 to pin A0 on trinke  PIN 1
-#define RPI A0 // single to the raspberry pi pin 37 that it should start the shutdown sequence
 // the setup routine runs once when you press reset:
 void setup() {
   // initialize the digital pin as an output.
