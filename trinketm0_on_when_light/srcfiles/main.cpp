@@ -1,19 +1,3 @@
-/*
-  Pulse
-  Pulses the internal LED to demonstrate the analogWrite function
-
-  This example code is in the public domain.  
-
-  To upload to your Gemma or Trinket:
-  1) Select the proper board from the Tools->Board Menu
-
-
-  3) Plug in the Gemma/Trinket, make sure you see the green LED lit
-  4) For windows, install the USBtiny drivers
-  5) Press the button on the Gemma/Trinket - verify you see
-     the red LED pulse. This means it is ready to receive data
-  6) Click the upload button above within 10 seconds
-*/
 #include <Adafruit_DotStar.h>
 #include <SPI.h>
 
@@ -23,46 +7,66 @@
 
 Adafruit_DotStar strip = Adafruit_DotStar(NUMPIXELS, DATAPIN, CLOCKPIN, DOTSTAR_BGR);
 
-#define RELAY 4 // controls power to the raspberry pi
-#define VLED 3 // external LED to indicate the raspberry pi is being given power
-
 #define LED 13 // pulse 'digital' pin 13 - AKA the built in red LED  - this just appears inside the box we use this for diagnostics internally 
-#define PHOTOCELL A0 // CdS photocell connected to this ANALOG 1 pin # which is PIN 1~
-#define LOWBAT 0 // power good signal from the VERTER 5v will be LOW when power is good and HIGH when power is low
-#define POWERSAVE 2 // use this to toggle power save mode on the vert to converve power
 
+#define RPI 0 // single to the raspberry pi pin 29/GPIO 5 that it should start the shutdown sequence PIN #0
+#define LOWBAT 1 // from PG pin on verter 5v to trinket PIN #1
+#define PHOTOCELL A1 // CDS photocell connected to this A1 pin on trinket PIN #2
+#define VLED A3 // External LED that we can see through the camera face PIN #3 
+#define RELAY 4 // EN pin on the verter 5v, PIN #4
+// because led 1 is also lowbat 0 we need to avoid messing with this pin it'll be an input pin only so well see led light up when low bat?
+//#define LED 1 // pulse 'digital' pin 1 - AKA the built in red LED  - this just appears inside the box  
+// the setup routine runs once when you press reset:
+/*
+adafruit verter: via https://forums.adafruit.com/viewtopic.php?f=19&t=78545
+
+EN is the enable line. Pulling it low shuts off the converter.
+
+G is GND.
+
+PG is 'Power Good'. It goes low when the chip decides the output level is stable.
+                    It's more powerful than a low-battery warning, but does the same basic job.
+                    When the battery discharges far enough that the chip can't produce a
+                    well-regulated output voltage for the given load,
+                    the PG pin will go high (technically it's an open-drain pin with a weak pull-up resistor,
+                    but that's enough to make a digital input work).
+
+PS is 'Power Save'. If you pull it low, the chip will drop to a lower frequency for light loads. It runs more efficiently that way, but you'll get some lag if the current load suddenly becomes larger.
+
+The Verter will work happily with the 2200mAh cylindrical LiPo.
+
+#### ERRRR conflicting information about this board #####
+
+see: https://forums.adafruit.com/viewtopic.php?f=8&t=145149
+The PG signal is Power Good.
+That pin goes low if the boost-buck converter thinks there's a problem with the upstream power supply.
+
+*/
+
+char SERIAL_BUFFER[1024];
 void blinkPhase(short value);
 
-short lowbatcycles = 0; // keep track of how many times the battery has been low... we'll signal to the pi in the case of low power and eventually we should just disable the relay
-short litcount = 0; // keep track of many seconds of good light we have before changing state.
-short dimcount = 31; // keep track of how many seconds we are dim before changing state.
-char SERIAL_BUFFER[1024]; // output buffer for easy debuggin
-
-// the setup routine runs once when you press reset:
 void setup() {
   Serial.begin(9600);
 
   strip.begin();
   strip.show(); // turns everything off
-  
+
   // initialize the digital pin as an output.
-  pinMode(LED, OUTPUT);
+//  pinMode(LED, OUTPUT);
   pinMode(VLED, OUTPUT);
 
-  pinMode(POWERSAVE, OUTPUT);
+  pinMode(RPI, OUTPUT);
 
   pinMode(RELAY, OUTPUT);
   pinMode(PHOTOCELL, INPUT); // mark as our input pin
-  
-  //pinMode(LOWBAT, INPUT_PULLUP);
+  pinMode(LOWBAT, INPUT);
 
-  digitalWrite(POWERSAVE, HIGH); // initial turn power save mode off until we determine the light levels
+  digitalWrite(RPI, LOW); // initially the pi should be off
   digitalWrite(RELAY, LOW); // initially the pi power should be off
 
-  digitalWrite(LED, 0); // we have light but the battery appears low start charging
+//  digitalWrite(LED, 0); // we have light but the battery appears low start charging
   digitalWrite(VLED, LOW); // we have light but the battery appears low start charging
-
-  
 
   // delay bootup to avoid blips
   for (short i = 0; i < 5; ++i) {
@@ -74,37 +78,46 @@ void setup() {
   
 }
 
-void softOn() {
-  digitalWrite(LED, HIGH);
-  digitalWrite(POWERSAVE, HIGH); // pull HIGH to turn off power save mode
-  Serial.println("softOn");
+short litcount = 0; // keep track of many seconds of good light we have before changing state.
+short dimcount = 31; // keep track of how many seconds we are dim before changing state.
+short lowcount = 0; // keep track of how many seconds we are low battery and possibly go full off
 
+void softOn() {
+//  digitalWrite(LED, HIGH);
+
+  digitalWrite(RPI, HIGH); // ensure the pi is signaled for wake up
 }
 
 void piOn() {
-  digitalWrite(POWERSAVE, HIGH); // pull high to ensure power save it turned off
+  digitalWrite(RPI, HIGH); // ensure the pi is signaled for wake up
 
   digitalWrite(RELAY, HIGH); // ensure ourpower to the pi is ON
     
-  digitalWrite(LED, LOW);  // PWM the LED from 255 (max) to 0
+//  digitalWrite(LED, LOW);  // PWM the LED from 255 (max) to 0
   digitalWrite(VLED, HIGH);  // PWM the LED from 255 (max) to 0
-  Serial.println("piOn");
 }
 
 void softOff() {
-  digitalWrite(LED, LOW);
-  digitalWrite(POWERSAVE, LOW); // enable power save mode
+//  digitalWrite(LED, HIGH);
+  digitalWrite(RPI, LOW);
   Serial.println("softOff");
+  strip.setPixelColor(0, 64, 0, 0);
+  strip.show();
 }
 
 void piOff() {
-  digitalWrite(LED, LOW);  // disable the led here to save power
+//  digitalWrite(LED, LOW);  // disable the led here to save power
+  strip.setPixelColor(0, 0, 0, 0);
+  strip.clear();
+  strip.show();
+
   digitalWrite(VLED, LOW);  // disable the led here to save power
+  digitalWrite(RPI, LOW);
+  Serial.println("piOff");
 
   // send signal here to pi to shutdown proper
   // after 30 more seconds cut the power
   digitalWrite(RELAY, LOW); // it's been dark for 10 seconds power off
-  Serial.println("piOff");
 }
 
 void blinkPhase(short value) {
@@ -120,53 +133,55 @@ void loop() {
   int lowbat = digitalRead(LOWBAT); // get value of battery reading  HIGH indicates low battery LOW indicates plenty of battery
   int light  = analogRead(PHOTOCELL); // returns values between 0 and 1023
 
-// NOTE: we can't figure out why when we draw more current through the VERTER power good goes HIGH but measuring
-// the voltage on the verter shows it is over 4.7 volts into the VIN/GND pins... 
-
   if (lowbat == HIGH) {
-    Serial.println("low battery detected");
-
+    Serial.println("lowbat");
+    ++lowcount;
     softOff();
-    digitalWrite(LED, HIGH);
-    digitalWrite(VLED, LOW);
-    lowbatcycles++;
-    if (lowbatcycles > 60) {
-      piOff();
-      lowbatcycles = 61; 
-      // keep power off until batteries recharge
-      return;
-    }
-  }
-  lowbatcycles = 0;
 
-  if (light > 490) { // light
-    if (lowbatcycles != 0) { 
-       delay(1000);
-       return;
+    if (lowcount > 10) { // 10 seconds of low power turn off more things
+      lowcount = 11;
+      // everything off we're nearly out of battery/juice
+//      digitalWrite(LED, LOW);
+      digitalWrite(VLED, LOW);
+      piOff();
+    } else {
+      blinkPhase(lowcount);
     }
-    ++litcount;
-    snprintf(SERIAL_BUFFER, 1023, "good light detected: %d %d - %d", litcount, light, lowbat);
-    Serial.println(SERIAL_BUFFER);
+
+    delay(1000);
+    return;
+  } else {
+    strip.setPixelColor(0, 0, 0, 0);
+    strip.clear();
+    strip.show();
+    lowcount = 0;
+    softOn();
+    piOn();
+  }
+
+  snprintf(SERIAL_BUFFER, 1023, "light detected: %d - %d", light, lowbat);
+  Serial.println(SERIAL_BUFFER);
   
-    if (litcount > 10) {
+  if (light > 80) { // light
+    digitalWrite(VLED, HIGH);
+    /*++litcount;
+  
+    if (litcount > 10) { 
       dimcount = 0;
       
-      if (litcount < 30) {
+      if (litcount < 20) {
         blinkPhase(litcount);
         softOn();
-      } else if (litcount > 30) {
+      } else if (litcount > 20) {
         piOn();
-        litcount = 31;
+        litcount = 21;
       }
     } else {
       blinkPhase(litcount);
-    }
+    }*/
   } else {
-    ++dimcount;
-    snprintf(SERIAL_BUFFER, 1023, "low light (%d) detected: %d %d - %d", dimcount, litcount, light, lowbat);
-    Serial.println(SERIAL_BUFFER);
-
-
+    digitalWrite(VLED, LOW);
+    /*++dimcount;
     if (dimcount > 10) { // it appears we are low on sun light
       litcount = 0; // it appears dark 
       if (dimcount < 30) {
@@ -178,7 +193,7 @@ void loop() {
       }
     } else {
        blinkPhase(dimcount);
-    }
+    }*/
   }
 
   delay(1000);
