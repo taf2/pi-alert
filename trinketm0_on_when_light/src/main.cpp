@@ -65,16 +65,18 @@ void setup() {
   digitalWrite(RPI, LOW); // initially the pi should be off
   digitalWrite(RELAY, LOW); // initially the pi power should be off
 
-//  digitalWrite(LED, 0); // we have light but the battery appears low start charging
-  digitalWrite(VLED, LOW); // we have light but the battery appears low start charging
+  digitalWrite(VLED, LOW);
 
   // delay bootup to avoid blips
   for (short i = 0; i < 5; ++i) {
     
+    Serial.println("blink start");
     delay(1000);
     blinkPhase(i);
     
   }
+
+  digitalWrite(VLED, HIGH);
   
 }
 
@@ -141,9 +143,7 @@ void loop() {
     if (lowcount > 10) { // 10 seconds of low power turn off more things
       lowcount = 11;
       // everything off we're nearly out of battery/juice
-//      digitalWrite(LED, LOW);
-      digitalWrite(VLED, LOW);
-      piOff();
+      //piOff();
     } else {
       blinkPhase(lowcount);
     }
@@ -163,7 +163,7 @@ void loop() {
   Serial.println(SERIAL_BUFFER);
   
   if (light > 80) { // light
-    digitalWrite(VLED, HIGH);
+    //digitalWrite(VLED, HIGH);
     /*++litcount;
   
     if (litcount > 10) { 
@@ -180,7 +180,7 @@ void loop() {
       blinkPhase(litcount);
     }*/
   } else {
-    digitalWrite(VLED, LOW);
+    //digitalWrite(VLED, LOW);
     /*++dimcount;
     if (dimcount > 10) { // it appears we are low on sun light
       litcount = 0; // it appears dark 
