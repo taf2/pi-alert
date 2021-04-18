@@ -21,9 +21,10 @@
 #define PI_DAY_LIGHT_ON_GPIO GPIO_NUM_22
 
 // these pins handle signaling between pi and tinypico so the tinypico can know that the pi is on
-#define PI_ON 21 // maps to physical pin 8 on the pi
+#define PI_ON 19 // maps to physical pin 8 on the pi
 #define PI_HERE 32 // maps to physical pin 10 on the pi
 #define RES_PIN 33 // maps to physical pin 12 on the pi
+#define PI_TURN_OFF 21 // we raise this HIGH when the pi should start it's shutdown sequence, maps to physical pin 37 on the pi
 
 #define FAN_PIN 15 // pull low to open transistor to turn fan power on via the 3.3v power rail
 
@@ -48,8 +49,8 @@
 // The beta coefficient of the thermistor (usually 3000-4000)
 #define BCOEFFICIENT 3950
 
-#define uS_TO_S_FACTOR 1000000  //Conversion factor for micro seconds to seconds
-#define TIME_TO_SLEEP  5       //Time ESP32 will go to sleep (in seconds)
+#define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds
+#define TIME_TO_SLEEP  5       // Time ESP32 will go to sleep (in seconds)
 
 unsigned int interval = 0;
 bool healthCheckMode = false;
@@ -66,6 +67,8 @@ static const char *pass = "<%= @config[:pass] %>";
 AsyncUDP udp;
 IPAddress localIP;
 bool IsConnected = false;
+
+TinyPICO tp = TinyPICO();
 
 void setup() {
   Serial.begin(115200);
@@ -151,27 +154,38 @@ void checkHealth(int light) {
     digitalWrite(FAN_PIN, HIGH); // turn fan off
   }
 
+  float picoVolts = tp.GetBatteryVoltage();
+
   int on = digitalRead(PI_ON);
   if (on == HIGH) {
     if (healthCheckMode) {
       // run a health check
       digitalWrite(RES_PIN, HIGH);
       interval++;
-      if (interval > 5) {
+      int piHere = digitalRead(PI_HERE);
+      Serial.println((String("doing health check: ") + interval) + " piHere: " + piHere);
+      if (interval > 0 && interval < 3) {
+        if (piHere == HIGH) {
+          // something wrong the pi should not have set this HIGH yet
+          Serial.println("pi should be low still");
+        } else {
+          Serial.println("pi here is low");
+        }
+      } else if (interval > 5) {
         interval = 0;
         healthCheckMode = false;
-        int piHere = digitalRead(PI_HERE);
         if (piHere == LOW) {
           Serial.println("appears the PI is not on!");
           notify("pi:ack:fail");
           digitalWrite(LED, LOW);
           // for now keep looping while pi is not this is not what we'd want to actually do!
+          // // we could cycle the en power pin...
           //return;
         } else {
           Serial.println("PI is on");
           digitalWrite(LED, HIGH);
           gpio_hold_en(LED_GPIO);
-          notify((String("pi:on:") + c) + ":" + light); // send pi on with the temp
+          notify((String("pi:on:") + c) + ":" + light  + ":" + picoVolts); // send pi on with the temp
         }
         gpio_deep_sleep_hold_en();
         esp_deep_sleep_start();
@@ -191,8 +205,9 @@ void checkHealth(int light) {
     // seems to be off!
     interval = 0;
     Serial.println("pi appears to be off!");
-    notify("pi:dead");
+    notify(String("pi:dead") + ":" + picoVolts);
     digitalWrite(LED, LOW);
+    gpio_hold_en(LED_GPIO);
     // for now keep looping while pi is not this is not what we'd want to actually do!
     //return;
     gpio_deep_sleep_hold_en();
@@ -203,7 +218,7 @@ void checkHealth(int light) {
 void checkBattery() {
   int lowbat = digitalRead(POWER_GOOD); // get value of battery reading  HIGH indicates low battery LOW indicates plenty of battery
   if (lowbat == HIGH) {
-    Serial.println("power not good");
+    Serial.println("power NOT good");
     // turning down systems - raspberry pi off
     digitalWrite(PI_EN_POWER, LOW);
     gpio_hold_en(PI_EN_POWER_GPIO);
@@ -212,13 +227,14 @@ void checkBattery() {
     gpio_hold_en(POWER_SAVE_GPIO);
 
     // tell everyone we're low battery and then we go bye bye
-    notify("bat:low");
+    float picoVolts = tp.GetBatteryVoltage();
+    bool isCharging = tp.IsChargingBattery();
+    notify(String("bat:low:") + (isCharging ? "charging:" : "draining:") + picoVolts);
 
     // go to sleep until we have more battery
     gpio_deep_sleep_hold_en();
     esp_deep_sleep_start();
   } else {
-    Serial.println("power good");
     digitalWrite(PI_EN_POWER, HIGH);
     gpio_hold_en(PI_EN_POWER_GPIO);
 
