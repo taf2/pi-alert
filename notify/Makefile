@@ -1,6 +1,11 @@
+all: notify listen listener pi-alive monitor
+
 notify: notify.c
 	gcc -Wall notify.c -o notify
 	#ar rcs $@ $^
+
+listen: listen.c
+	gcc -Wall listen.c -o listen
 
 listener: listener.c
 	gcc -Wall listener.c -o listener -lwiringPi
