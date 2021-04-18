@@ -14,6 +14,8 @@
 #define PI_HERE 10
 #define RES_PIN 12 // switch PI_HERE to HIGH when monitor goes HIGH
 
+int interval = 0;
+
 void setup() {
   wiringPiSetupPhys();
 
@@ -29,12 +31,18 @@ void loop() {
   int monitor = digitalRead(RES_PIN);
 
   if (monitor == HIGH) {
-    digitalWrite(PI_HERE, HIGH);
+    interval++;
+    if (interval > 0 && interval < 2) {
+      digitalWrite(PI_HERE, LOW);
+    } else {
+      digitalWrite(PI_HERE, HIGH);
+    }
   } else {
+    interval = 0;
     digitalWrite(PI_HERE, LOW);
   }
 
-  delay(100);
+  delay(1000);
 
 }
 

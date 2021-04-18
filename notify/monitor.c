@@ -16,17 +16,17 @@
 
 #include <wiringPi.h>
 
-#define IR1 37 // GPIO 26 
-#define IR2 35 // GPIO 19 
-#define IR3 33 // GPIO 13
-#define IR4 31 // GPIO 6
+#define IR1 19 // GPIO 10
+#define IR2 21 // GPIO 9
+#define IR3 15 // GPIO 22
+#define IR4 24 // GPIO 8
 #define RLED  11 // GPIO 17
 //#define RLED  3 // GPIO 2
-#define LIGHT_SENSOR  13 // GPIO 27
-//#define LIGHT_SENSOR  5 // GPIO 3
+#define LIGHT_SENSOR  26 // GPIO 7
+#define LIGHT_TINY  40 // GPIO 21
 
 // receive a single from trinket m0 that our battery is about to go out
-#define PWROFF 29 // pwr GPIO 5, wiring 21
+#define PWROFF 37 // pwr GPIO 26, wiring 25
 
 int isLight() {
 	int light = LOW;

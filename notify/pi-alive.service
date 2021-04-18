@@ -1,0 +1,15 @@
+[Unit]
+Description=pi alive responder
+After=syslog.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/
+ExecStart=/home/pi/pi-alive
+StandardOutput=syslog
+StandardError=syslog
+
+[Install]
+WantedBy=multi-user.target
