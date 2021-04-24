@@ -32,6 +32,8 @@ int strend(const char *s, const size_t ls, const char *t) {
 
 enum WakeUpMode { WakeTimer, WakeMotion, WakeOther };
 
+bool WaitingOnUpdate = false;
+
 static void connectToWiFi(const char * ssid, const char * pwd);
 static void notify(String message);
 static void updateMode();
@@ -95,23 +97,32 @@ void setup() {
 
     if (hasUpdates()) {
       updateMode();
+    } else {
+      esp_deep_sleep_start();
     }
   } else if (wake == WakeMotion) {
     connectToWiFi(ssid, pass);
 
     notify("motion");
+
     if (hasUpdates()) {
       updateMode();
-      return;
+    } else {
+      esp_deep_sleep_start();
     }
-    esp_deep_sleep_start();
   } else {
     esp_deep_sleep_start();
   }
 }
 
 void loop() {
-  ArduinoOTA.handle();
+  if (WaitingOnUpdate) {
+    Serial.println("waiting on updates");
+    ArduinoOTA.handle();
+  } else {
+    Serial.println("sleep error!");
+    ESP.restart();
+  }
   delay(1000);
 }
 
@@ -134,7 +145,7 @@ void connectToWiFi(const char * ssid, const char * pwd) {
 bool hasUpdates() {
   AsyncUDP listener;
 
-  Serial.println("check for updates 2 seconds...");
+  Serial.println("check for updates 1 second...");
 
   // now start listening
   if (listener.listen(1500)) {
@@ -187,6 +198,7 @@ void notify(String message) {
 }
 
 void updateMode() {
+  WaitingOnUpdate = true;
   Serial.println("Going into Update Mode");
   ArduinoOTA.onStart([]() {
     String type;

@@ -30,11 +30,11 @@
 #define DELAY_BETWEEN_ALARM 15
 
 // receive a single from arduinio trinket that our battery is about to go out
-#define PWROFF 29 // moved this so it's closer to the trinket
-#define REDLED 36
-#define BLUELED 37 // blue
-#define YELLOWLED 31 // yellow, note used but, reserved for a processing pin if after capturing video we need some indicator that we're processing.
-#define PIRPIN 32
+#define PWROFF 29 // pwr GPIO 5, wiring 21
+#define REDLED 36 // red GPIO 16, wiring 27
+#define BLUELED 37 // blue GPIO 26, wiring 25
+#define YELLOWLED 31 // yellow, not used but, GPIO 6, wiring 22 - reserved for a processing pin if after capturing video we need some indicator that we're processing.
+#define PIRPIN 32 // motion sensor, GPIO 12, wiring 26
 
 #define MAX_CAPTURES 256
 #define REDIS_HOST "192.168.2.50"
