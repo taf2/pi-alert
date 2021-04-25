@@ -36,6 +36,7 @@ bool WaitingOnUpdate = false;
 
 static void connectToWiFi(const char * ssid, const char * pwd);
 static void notify(String message);
+
 static void updateMode();
 static bool hasUpdates();
 
