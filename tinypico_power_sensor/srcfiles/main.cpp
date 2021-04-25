@@ -9,6 +9,7 @@
 #include <WiFiClient.h>
 #include <HTTPClient.h>
 #include <AsyncUDP.h>
+#include <ArduinoOTA.h>
 
 #include <Adafruit_INA260.h>
 
@@ -27,6 +28,11 @@ static const char *pass = "<%= @config[:pass] %>";
 AsyncUDP udp;
 IPAddress localIP;
 bool IsConnected = false;
+
+// update code
+bool WaitingOnUpdate = false;
+static void updateMode();
+static bool hasUpdates();
 
 Adafruit_INA260 ina260 = Adafruit_INA260();
 
@@ -122,10 +128,20 @@ void setup() {
   esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
 
   checkReadings(print_wakeup_reason());
-  esp_deep_sleep_start();
+
+  if (hasUpdates()) {
+    updateMode();
+  } else {
+    esp_deep_sleep_start();
+  }
 }
 
 void loop() {
+  if (WaitingOnUpdate) {
+    Serial.println("waiting on updates");
+    ArduinoOTA.handle();
+  }
+  delay(1000);
 }
 
 void ConnectToWiFi(const char * ssid, const char * pwd) {
@@ -153,4 +169,74 @@ void notify(String message) {
     udp.print(localIP.toString() + ":" + message);
     udp.print(localIP.toString() + ":" + message);
   }
+}
+
+bool hasUpdates() {
+  AsyncUDP listener;
+
+  Serial.println("check for updates 1 second...");
+
+  // now start listening
+  if (listener.listen(1500)) {
+    Serial.println("\twaiting on updates on 1500....");
+    // now listen for other packets for a few seconds e.g. to see if we have any updates
+    bool gotUpdate = false;
+    listener.onPacket([&gotUpdate](AsyncUDPPacket packet) {
+      Serial.print("UDP Packet Type: ");
+      Serial.print(packet.isBroadcast()?"Broadcast":packet.isMulticast()?"Multicast":"Unicast");
+      Serial.print(", From: ");
+      Serial.print(packet.remoteIP());
+      Serial.print(":");
+      Serial.print(packet.remotePort());
+      Serial.print(", To: ");
+      Serial.print(packet.localIP());
+      Serial.print(":");
+      Serial.print(packet.localPort());
+      Serial.print(", Length: ");
+      Serial.print(packet.length());
+      Serial.print(", Data: ");
+      Serial.write(packet.data(), packet.length());
+      Serial.println();
+      // check our data
+      if (strncmp((const char*)packet.data(), "request:update", packet.length()) == 0) {
+        gotUpdate = true; 
+        //reply to the client
+        packet.printf("Ack:Update");
+      }
+    });
+    delay(1 * 1000);
+    Serial.println(String("Status:") + (gotUpdate ? " Update! " : "Standbye"));
+    return gotUpdate;
+  } else {
+    Serial.println("failed to listen on 1500!");
+    return false;
+  }
+}
+
+void updateMode() {
+  WaitingOnUpdate = true;
+  Serial.println("Going into Update Mode");
+  ArduinoOTA.onStart([]() {
+    String type;
+    if (ArduinoOTA.getCommand() == U_FLASH)
+      type = "sketch";
+    else // U_SPIFFS
+      type = "filesystem";
+
+    // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+    Serial.println("Start updating " + type);
+  }).onEnd([]() {
+    Serial.println("\nEnd");
+  }).onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  }).onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+  });
+
+  ArduinoOTA.begin();
 }
