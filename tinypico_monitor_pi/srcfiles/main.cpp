@@ -54,7 +54,7 @@
 #define BCOEFFICIENT 3950
 
 #define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds
-#define TIME_TO_SLEEP  60       // Time ESP32 will go to sleep (in seconds)
+#define TIME_TO_SLEEP  10       // Time ESP32 will go to sleep (in seconds)
 
 unsigned int interval = 0;
 bool healthCheckMode = false;
@@ -64,11 +64,13 @@ static void signalPIOn();
 static void signalPIOff();
 static void powerNotGood();
 static void powerGood();
+static void powerCycle();
 static void ConnectToWiFi(const char * ssid, const char * pwd);
 static void notify(String message);
 
 // update code
 bool WaitingOnUpdate = false;
+bool IsPowerGood = false;
 static void updateMode();
 static bool hasUpdates();
 
@@ -95,9 +97,15 @@ void setup() {
   pinMode(PI_TURN_OFF, OUTPUT);
   pinMode(PI_EN_POWER, OUTPUT);
   pinMode(POWER_GOOD, INPUT_PULLDOWN);
-  pinMode(POWER_SAVE, OUTPUT);
+  pinMode(POWER_SAVE, INPUT_PULLUP);
   pinMode(PHOTOCELL, INPUT);
   pinMode(PI_DAY_LIGHT_ON, OUTPUT);
+
+  digitalWrite(PI_EN_POWER, HIGH);
+  gpio_hold_en(PI_EN_POWER_GPIO);
+
+  digitalWrite(POWER_SAVE, HIGH);
+  gpio_hold_en(POWER_SAVE_GPIO);
 
   digitalWrite(PI_TURN_OFF, LOW);
   digitalWrite(FAN_PIN, HIGH); // keep fan from turning ON... if we had an oposite transistor maybe we could keep this low??
@@ -164,7 +172,7 @@ int checkLight() {
 void checkHealth(int light) {
   float c = getTemp();
 
-  if (c > 36) {
+  if (c > 38) {
     digitalWrite(FAN_PIN, LOW); // turn fan on
     notify(String("temp:high:") + c);
   } else {
@@ -209,6 +217,7 @@ void checkHealth(int light) {
         if (hasUpdates()) {
           updateMode();
         } else {
+          gpio_deep_sleep_hold_en();
           esp_deep_sleep_start();
         }
       }
@@ -230,15 +239,36 @@ void checkHealth(int light) {
     notify(String("pi:dead") + ":" + picoVolts);
     digitalWrite(LED, LOW);
     gpio_hold_en(LED_GPIO);
+    if (IsPowerGood) {
+      Serial.println("power is good");
+    } else {
+      Serial.println("power is not good");
+    }
+
+    //if (IsPowerGood) {
+      // can we power cycle the pi?
+      powerCycle();
+    //}
     // for now keep looping while pi is not this is not what we'd want to actually do!
     //return;
     //gpio_deep_sleep_hold_en();
     if (hasUpdates()) {
       updateMode();
     } else {
+      gpio_deep_sleep_hold_en();
       esp_deep_sleep_start();
     }
   }
+}
+
+void powerCycle() {
+  Serial.println("power cycle the PI");
+  digitalWrite(PI_EN_POWER, LOW);
+  gpio_hold_en(PI_EN_POWER_GPIO);
+  delay(15000);
+  Serial.println("power cycle resume the PI");
+  digitalWrite(PI_EN_POWER, HIGH);
+  gpio_hold_en(PI_EN_POWER_GPIO);
 }
 
 void powerGood() {
@@ -257,8 +287,8 @@ void powerNotGood() {
 
   digitalWrite(PI_EN_POWER, LOW);
   gpio_hold_en(PI_EN_POWER_GPIO);
-  digitalWrite(POWER_SAVE, LOW);
-  gpio_hold_en(POWER_SAVE_GPIO);
+  //digitalWrite(POWER_SAVE, LOW);
+//  gpio_hold_en(POWER_SAVE_GPIO);
 }
 static void signalPIOn() {
   digitalWrite(PI_TURN_OFF, LOW);
@@ -270,6 +300,8 @@ static void signalPIOff() {
 
 void checkBattery() {
   int lowbat = digitalRead(POWER_GOOD); // get value of battery reading  HIGH indicates low battery LOW indicates plenty of battery
+ 
+  IsPowerGood = false;
   if (lowbat == HIGH) {
     Serial.println("power may not be good");
     float picoVolts = tp.GetBatteryVoltage();
@@ -278,11 +310,16 @@ void checkBattery() {
 
     picoVolts = roundf(picoVolts * 100) / 100;
     int roundedVolts = (int)(picoVolts * 10);
-    if (roundedVolts >= 42 && !isCharging) {
+    if (isCharging) {
+      IsPowerGood = true;
+      powerGood();
+      return;
+    } else if (roundedVolts >= 41 && !isCharging) {
       //digitalWrite(LED, LOW);
       //gpio_hold_en(LED_GPIO);
       // pico battery is fully charged and not draining or charging so even though we're getting power not good
       // from the verter... power does actually appear good to us... proceed as normal
+      IsPowerGood = true;
       powerGood();
       return;
     }
@@ -303,9 +340,11 @@ void checkBattery() {
     if (hasUpdates()) {
       updateMode();
     } else {
+      gpio_deep_sleep_hold_en();
       esp_deep_sleep_start();
     }
   } else {
+    IsPowerGood = true;
     powerGood();
   }
 }
@@ -342,8 +381,6 @@ void ConnectToWiFi(const char * ssid, const char * pwd) {
 static void notify(String message) {
   ConnectToWiFi(ssid, pass);
   if (udp.connect(IPAddress(255,255,255,255), 1500)) {
-    udp.print(localIP.toString() + ":" + message);
-    udp.print(localIP.toString() + ":" + message);
     udp.print(localIP.toString() + ":" + message);
   }
 }
