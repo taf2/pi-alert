@@ -181,14 +181,20 @@ int main(int argc, char**argv) {
     }
 
     /* print received message */
-    printf("%s: from %s:UDP%u : %s \n", argv[0],inet_ntoa(cliAddr.sin_addr), ntohs(cliAddr.sin_port),msg);
+    printf("%s: from %s:UDP%u : '%s' \n", argv[0], inet_ntoa(cliAddr.sin_addr), ntohs(cliAddr.sin_port), msg);
+    int messageLength = strlen(msg);
 
-    if (strncmp(argv[0], ":motion", 6) == 0) {
+    if (messageLength > 6) {
+      printf("end of message: '%s'\n", (msg+(messageLength-6)));
+    }
+
+    if (messageLength > 6 && strncmp(msg+(messageLength-6), "motion", 6) == 0) {
       time_t motionTime = time(NULL);
 
       tdiff  = difftime(motionTime, lastMotionTime);
  
       if (lastMotionTime == 0 || tdiff > 5.0) {
+        printf("start capturing motion!\n");
         // if the message is motion start recording
         digitalWrite(RLED, HIGH);
         captureRecording(recordings++);

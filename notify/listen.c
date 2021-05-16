@@ -10,6 +10,7 @@
 #include <unistd.h> /* close() */
 #include <string.h> /* memset() */
 #include <signal.h>
+#include <time.h>
 
 //for Mac OS X
 #include <stdlib.h>
@@ -65,7 +66,13 @@ int main(int argc, char *argv[]) {
     }
 
     /* print received message */
-    printf("%s: from %s:UDP%u : %s \n", argv[0],inet_ntoa(cliAddr.sin_addr), ntohs(cliAddr.sin_port),msg);
+    time_t now;
+    time(&now);
+
+    char *timestr = ctime(&now);
+    timestr[strlen(timestr)-1] = '\0'; // replace \n with null terminator
+
+    printf("[%s]: from %s:UDP%u : %s \n", timestr, inet_ntoa(cliAddr.sin_addr), ntohs(cliAddr.sin_port),msg);
 
   }/* end of server infinite loop */
 
