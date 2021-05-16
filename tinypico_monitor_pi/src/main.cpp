@@ -1,6 +1,13 @@
 /**
  * watching pin 8, 10 and using 12 on the raspberry pi to know whether the pi is running normally
+ * 
+ * #define HAS_VERTER  - when using a adafruit verter as main power source
+ * #define HAS_LIGHT_SENSOR - when not using a pi with a built in IR camera  with light sensor then we need our own sensors
+ * #define HAS_LED - when we attach a status led on the outside of the camera
+ * #define HAS_FAN_NPN - when the transistor to control the fan is npn instead of pnp
  */
+#define HAS_FAN_NPN
+#define HAS_LED
 #include <TinyPICO.h>
 
 #include <math.h>
@@ -14,28 +21,40 @@
 
 
 // status led for the tinypico to tell us if the pi is on or off
+#ifdef HAS_LED
 #define LED 26
 #define LED_GPIO GPIO_NUM_26
+#endif
 
+#ifdef HAS_LIGHT_SENSOR
 // these pins handle daylight detection for the tinypico, we can use this to maybe adjust power consumption based on solar being available
 #define PHOTOCELL 14
 // we connect this to the pi to give it easier read on whether it's daylight or NOT pull HIGH when light low when dark
 #define PI_DAY_LIGHT_ON 22
 #define PI_DAY_LIGHT_ON_GPIO GPIO_NUM_22
+#endif
 
 // these pins handle signaling between pi and tinypico so the tinypico can know that the pi is on
 #define PI_ON 19 // maps to physical pin 8 on the pi
 #define PI_HERE 32 // maps to physical pin 10 on the pi
 #define RES_PIN 33 // maps to physical pin 12 on the pi
-#define PI_TURN_OFF 21 // we raise this HIGH when the pi should start it's shutdown sequence, maps to physical pin 37 on the pi
+#ifdef HAS_LIGHT_SENSOR
+#define PI_TURN_OFF 21 // we raise this HIGH when the pi should start it's shutdown sequence, maps to physical pin 16|37 on the pi
 #define PI_TURN_OFF_GPIO GPIO_NUM_21
+#else
+#define PI_TURN_OFF 22 // we raise this HIGH when the pi should start it's shutdown sequence, maps to physical pin 16|37 on the pi
+#define PI_TURN_OFF_GPIO GPIO_NUM_22
+#endif
 
 #define FAN_PIN 15 // pull low to open transistor to turn fan power on via the 3.3v power rail
+#define FAN_PIN_GPIO GPIO_NUM_15
 
+#ifdef HAS_VERTER
 // from the verter e.g. our power source we'll pull power_save high if our power is NOT good
 #define POWER_GOOD 22
 #define POWER_SAVE 5
 #define POWER_SAVE_GPIO GPIO_NUM_5
+#endif
 
 // control power to the pi if we pull this low the pi will turn off normally we hold this high to keep the pi on unless we're low bat
 #define PI_EN_POWER 18
@@ -54,23 +73,31 @@
 #define BCOEFFICIENT 3950
 
 #define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds
-#define TIME_TO_SLEEP  60       // Time ESP32 will go to sleep (in seconds)
+#define TIME_TO_SLEEP  60      // Time ESP32 will go to sleep (in seconds)
+                               // NOTE: don't set this too low or else the processor won't give the pi enough time between pi:dead to actually boot
+                              // adjust this smaller for debug longer for production
 
 unsigned int interval = 0;
 bool healthCheckMode = false;
+bool healthCheckStartUpMode = false;
 int samples[NUMSAMPLES];
 
 static void signalPIOn();
 static void signalPIOff();
 static void powerNotGood();
 static void powerGood();
+static void powerCycle();
 static void ConnectToWiFi(const char * ssid, const char * pwd);
 static void notify(String message);
 
 // update code
 bool WaitingOnUpdate = false;
+bool IsPowerGood = false;
+static void doFinalUpdateModeOrSleep();
 static void updateMode();
 static bool hasUpdates();
+static void fanOn();
+static void fanOff();
 
 void checkHealth(int light);
 int checkLight();
@@ -91,16 +118,27 @@ void setup() {
   pinMode(RES_PIN, OUTPUT);
   pinMode(FAN_PIN, OUTPUT);
   pinMode(THERMISTOR_PIN, INPUT);
+#ifdef HAS_LED
   pinMode(LED, OUTPUT);
+#endif
   pinMode(PI_TURN_OFF, OUTPUT);
   pinMode(PI_EN_POWER, OUTPUT);
+#ifdef HAS_VERTER
   pinMode(POWER_GOOD, INPUT_PULLDOWN);
-  pinMode(POWER_SAVE, OUTPUT);
+  pinMode(POWER_SAVE, INPUT_PULLUP);
+  digitalWrite(POWER_SAVE, HIGH);
+  gpio_hold_en(POWER_SAVE_GPIO);
+#endif
+#ifdef HAS_LIGHT_SENSOR
   pinMode(PHOTOCELL, INPUT);
   pinMode(PI_DAY_LIGHT_ON, OUTPUT);
+#endif
+
+  digitalWrite(PI_EN_POWER, HIGH);
+  gpio_hold_en(PI_EN_POWER_GPIO);
 
   digitalWrite(PI_TURN_OFF, LOW);
-  digitalWrite(FAN_PIN, HIGH); // keep fan from turning ON... if we had an oposite transistor maybe we could keep this low??
+  fanOff();
 
   esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
 }
@@ -125,17 +163,17 @@ float averageReading() {
 
 float getTemp() {
   // see: https://learn.adafruit.com/thermistor/using-a-thermistor
-  float reading = averageReading() / 3.8;
+  float reading = averageReading() / 3.3;
   //Serial.print("Analog reading ");
-//  Serial.println(reading); // 1574
+  //Serial.println(reading); // 1574
 
   // convert the value to resistance
   reading = (1023 / reading)  - 1;     // (1023/ADC - 1)
   reading = SERIES_RESISTOR / reading;  // 10K / (1023/ADC - 1)
 //  Serial.print("Thermistor resistance ");
 //  Serial.println(reading);
-  float steinhart;
-  steinhart = reading / THERMISTORNOMINAL;     // (R/Ro)
+  if (reading < 0) { reading *= -1; }
+  float steinhart = reading / THERMISTORNOMINAL;     // (R/Ro)
   steinhart = log(steinhart);                  // ln(R/Ro)
   steinhart /= BCOEFFICIENT;                   // 1/B * ln(R/Ro)
   steinhart += 1.0 / (TEMPERATURENOMINAL + 273.15); // + (1/To)
@@ -149,27 +187,39 @@ float getTemp() {
 }
 
 int checkLight() {
+#ifdef HAS_LIGHT_SENSOR
   int light = analogRead(PHOTOCELL);
   if (light > 80) { // light
     Serial.println("it's light");
+    gpio_hold_dis(PI_DAY_LIGHT_ON_GPIO);
     digitalWrite(PI_DAY_LIGHT_ON, HIGH);
     gpio_hold_en(PI_DAY_LIGHT_ON_GPIO);
   } else {
+    gpio_hold_dis(PI_DAY_LIGHT_ON_GPIO);
     digitalWrite(PI_DAY_LIGHT_ON, LOW);
     gpio_hold_en(PI_DAY_LIGHT_ON_GPIO);
   }
   return light;
+#endif
+  // no light sensor assume dark?
+  return 0;
 }
 
 void checkHealth(int light) {
   float c = getTemp();
+  bool turnedFanOn = false;
 
-  if (c > 36) {
-    digitalWrite(FAN_PIN, LOW); // turn fan on
-    notify(String("temp:high:") + c);
+  gpio_hold_dis(FAN_PIN_GPIO);
+  if (c > 40) {
+    fanOn();
+    turnedFanOn  = true;
+    // NOTE: we can't notify here if we attach to the WIFI we'll possibly break when we try to read pin 4 because we used ADC2 which wifi also needs
+    //notify(String("temp:high:") + c);
   } else {
-    digitalWrite(FAN_PIN, HIGH); // turn fan off
+    fanOff();
+    turnedFanOn  = false;
   }
+  gpio_hold_en(FAN_PIN_GPIO);
 
   float picoVolts = tp.GetBatteryVoltage();
 
@@ -193,24 +243,26 @@ void checkHealth(int light) {
         healthCheckMode = false;
         if (piHere == LOW) {
           Serial.println("appears the PI is not on!");
-          notify("pi:ack:fail");
+          notify(String("pi:ack:fail") + (turnedFanOn ? ":FanON" : ""));
+#ifdef HAS_LED
+          gpio_hold_dis(LED_GPIO);
           digitalWrite(LED, LOW);
           gpio_hold_en(LED_GPIO);
+#endif
           // for now keep looping while pi is not this is not what we'd want to actually do!
           // // we could cycle the en power pin...
           //return;
         } else {
           Serial.println("PI is on");
+#ifdef HAS_LED
+          gpio_hold_dis(LED_GPIO);
           digitalWrite(LED, HIGH);
           gpio_hold_en(LED_GPIO);
-          notify((String("pi:on:") + c) + ":" + light  + ":" + picoVolts); // send pi on with the temp
+#endif
+          notify((String("pi:on:t:") + c) + ":l:" + light  + ":v:" + picoVolts + (turnedFanOn ? ":FanON" : "")); // send pi on with the temp
         }
         //gpio_deep_sleep_hold_en();
-        if (hasUpdates()) {
-          updateMode();
-        } else {
-          esp_deep_sleep_start();
-        }
+        doFinalUpdateModeOrSleep();
       }
     } else {
       // it appears on good news
@@ -218,8 +270,11 @@ void checkHealth(int light) {
       if (interval > 5) {
         interval = 0;
         healthCheckMode = true;
+        healthCheckStartUpMode = false;
         Serial.println("start health check");
       } else {
+        healthCheckStartUpMode = true;
+        // running 5 seconds with RES_PIN low
         digitalWrite(RES_PIN, LOW);
       }
     }
@@ -227,49 +282,93 @@ void checkHealth(int light) {
     // seems to be off!
     interval = 0;
     Serial.println("pi appears to be off!");
-    notify(String("pi:dead") + ":" + picoVolts);
+    powerCycle();
+    if (turnedFanOn) {
+      fanOff();
+    }
+    notify(String("pi:dead") + ":" + picoVolts + (turnedFanOn ? ":FanON" : ""));
+#ifdef HAS_LED
+    gpio_hold_dis(LED_GPIO);
+    for (int i = 0; i < 5; ++i) {
+      digitalWrite(LED, LOW);
+      delay(1000);
+      digitalWrite(LED, HIGH);
+      delay(1000);
+    }
     digitalWrite(LED, LOW);
     gpio_hold_en(LED_GPIO);
-    // for now keep looping while pi is not this is not what we'd want to actually do!
-    //return;
-    //gpio_deep_sleep_hold_en();
-    if (hasUpdates()) {
-      updateMode();
-    } else {
-      esp_deep_sleep_start();
+#endif
+
+    delay(20000); // delay sleep for 20 seconds while pi maybe is rebooting
+
+    if (turnedFanOn) {
+      fanOn();
     }
+    doFinalUpdateModeOrSleep();
   }
+}
+
+void powerCycle() {
+  Serial.println("power cycle the PI");
+#ifdef HAS_LED
+  gpio_hold_dis(LED_GPIO);
+#endif
+  gpio_hold_dis(PI_EN_POWER_GPIO);
+  digitalWrite(PI_EN_POWER, LOW);
+  for (int i = 0; i < 5; ++i) {
+#ifdef HAS_LED
+    digitalWrite(LED, HIGH);
+    delay(500);
+    digitalWrite(LED, LOW);
+    delay(500);
+#else
+    delay(1000);
+#endif
+  }
+  Serial.println("power cycle resume the PI");
+  digitalWrite(PI_EN_POWER, HIGH);
+  gpio_hold_en(PI_EN_POWER_GPIO);
 }
 
 void powerGood() {
   Serial.println("power good");
+  gpio_hold_dis(PI_EN_POWER_GPIO);
   digitalWrite(PI_EN_POWER, HIGH);
   gpio_hold_en(PI_EN_POWER_GPIO);
 
+  gpio_hold_dis(PI_TURN_OFF_GPIO);
   digitalWrite(PI_TURN_OFF, LOW);
   gpio_hold_en(PI_TURN_OFF_GPIO);
 
+#ifdef HAS_VERTER
+  gpio_hold_dis(POWER_SAVE_GPIO);
   digitalWrite(POWER_SAVE, HIGH);
   gpio_hold_en(POWER_SAVE_GPIO);
+#endif
 }
 void powerNotGood() {
   signalPIOn();
 
+  gpio_hold_dis(PI_EN_POWER_GPIO);
   digitalWrite(PI_EN_POWER, LOW);
   gpio_hold_en(PI_EN_POWER_GPIO);
-  digitalWrite(POWER_SAVE, LOW);
-  gpio_hold_en(POWER_SAVE_GPIO);
+
 }
 static void signalPIOn() {
+  gpio_hold_dis(PI_TURN_OFF_GPIO);
   digitalWrite(PI_TURN_OFF, LOW);
   gpio_hold_en(PI_TURN_OFF_GPIO);
 }
 static void signalPIOff() {
+  gpio_hold_dis(PI_TURN_OFF_GPIO);
   digitalWrite(PI_TURN_OFF, HIGH);
 }
 
 void checkBattery() {
+#ifdef HAS_VERTER
   int lowbat = digitalRead(POWER_GOOD); // get value of battery reading  HIGH indicates low battery LOW indicates plenty of battery
+ 
+  IsPowerGood = false;
   if (lowbat == HIGH) {
     Serial.println("power may not be good");
     float picoVolts = tp.GetBatteryVoltage();
@@ -278,36 +377,69 @@ void checkBattery() {
 
     picoVolts = roundf(picoVolts * 100) / 100;
     int roundedVolts = (int)(picoVolts * 10);
-    if (roundedVolts >= 42 && !isCharging) {
+    if (isCharging) {
+      IsPowerGood = true;
+      powerGood();
+      return;
+    } else if (roundedVolts >= 41 && !isCharging) {
       //digitalWrite(LED, LOW);
       //gpio_hold_en(LED_GPIO);
       // pico battery is fully charged and not draining or charging so even though we're getting power not good
       // from the verter... power does actually appear good to us... proceed as normal
+      IsPowerGood = true;
       powerGood();
       return;
     }
     snprintf(buf, 512, "power not good: %f and %s and %d", picoVolts, (isCharging ? "charging" : "draining"), roundedVolts);
     Serial.println(buf);
+#ifdef HAS_LED
+    gpio_hold_dis(LED_GPIO);
     digitalWrite(LED, LOW);
+#endif
     // turning down systems - raspberry pi off
     signalPIOff();
     delay(10000); // give the PI 10 seconds to shutdown and then we cut the power
     powerNotGood();
 
     // tell everyone we're low battery and then we go bye bye
-    notify(String("bat:low:") + (isCharging ? "charging:" : "draining:") + picoVolts);
+    notify(String("pi:bat:low:") + (isCharging ? "charging:" : "draining:") + picoVolts);
 
     // go to sleep until we have more battery
     gpio_hold_en(LED_GPIO);
     //gpio_deep_sleep_hold_en();
-    if (hasUpdates()) {
-      updateMode();
-    } else {
-      esp_deep_sleep_start();
-    }
+    doFinalUpdateModeOrSleep();
   } else {
+    IsPowerGood = true;
     powerGood();
   }
+#else
+  float picoVolts = tp.GetBatteryVoltage();
+
+  picoVolts = roundf(picoVolts * 100) / 100;
+  if (picoVolts > 3.7) {
+    IsPowerGood = true;
+    powerGood();
+  } else {
+#ifdef HAS_LED
+    gpio_hold_dis(LED_GPIO);
+    digitalWrite(LED, LOW); // shutdown the LED
+#endif
+    // turning down systems - raspberry pi off
+    signalPIOff();
+    delay(10000); // give the PI 10 seconds to shutdown and then we cut the power
+    powerNotGood();
+
+    // tell everyone we're low battery and then we go bye bye
+    notify(String("pi:bat:low:") + picoVolts);
+
+    // go to sleep until we have more battery
+#ifdef HAS_LED
+    gpio_hold_en(LED_GPIO);
+#endif
+    //gpio_deep_sleep_hold_en();
+    doFinalUpdateModeOrSleep();
+  }
+#endif
 }
 
 void loop() {
@@ -343,9 +475,21 @@ static void notify(String message) {
   ConnectToWiFi(ssid, pass);
   if (udp.connect(IPAddress(255,255,255,255), 1500)) {
     udp.print(localIP.toString() + ":" + message);
-    udp.print(localIP.toString() + ":" + message);
-    udp.print(localIP.toString() + ":" + message);
   }
+}
+static void fanOn() {
+#ifdef HAS_FAN_NPN
+  digitalWrite(FAN_PIN, HIGH);
+#else
+  digitalWrite(FAN_PIN, LOW);
+#endif
+}
+static void fanOff() {
+#ifdef HAS_FAN_NPN
+  digitalWrite(FAN_PIN, LOW);
+#else
+  digitalWrite(FAN_PIN, HIGH);
+#endif
 }
 
 bool hasUpdates() {
@@ -387,6 +531,14 @@ bool hasUpdates() {
   } else {
     Serial.println("failed to listen on 1500!");
     return false;
+  }
+}
+void doFinalUpdateModeOrSleep() {
+  if (hasUpdates()) {
+    updateMode();
+  } else {
+    gpio_deep_sleep_hold_en();
+    esp_deep_sleep_start();
   }
 }
 void updateMode() {
