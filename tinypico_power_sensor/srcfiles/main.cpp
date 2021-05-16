@@ -89,9 +89,9 @@ void checkReadings(bool activeLED=false) {
   if (activeLED) {
     Serial.println("pressed button");
 
-    if (volts > 4452) {
+    if (volts > 3952) {
       digitalWrite(LED_FULL, HIGH);
-    } else if (4000) {
+    } else if (3500) {
       digitalWrite(LED_HALF, HIGH);
     } else {
       digitalWrite(LED_LOW, HIGH);
@@ -165,8 +165,6 @@ void ConnectToWiFi(const char * ssid, const char * pwd) {
 void notify(String message) {
   ConnectToWiFi(ssid, pass);
   if (udp.connect(IPAddress(255,255,255,255), 1500)) {
-    udp.print(localIP.toString() + ":" + message);
-    udp.print(localIP.toString() + ":" + message);
     udp.print(localIP.toString() + ":" + message);
   }
 }
