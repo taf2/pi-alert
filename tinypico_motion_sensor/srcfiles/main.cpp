@@ -1,6 +1,7 @@
 #include <TinyPICO.h>
 
 #include <SPI.h>
+#include <esp_wifi.h>
 #include <WiFi.h>
 #include <Wire.h>
 #include <WiFiClient.h>
@@ -10,8 +11,10 @@
 
 #define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds
 #define TIME_TO_SLEEP  60       // Time ESP32 will go to sleep (in seconds)
-#define LED 25
-#define PIR 14
+#define LED 14
+#define LED_GPIO GPIO_NUM_14
+#define PIR 4
+#define PIR_GPIO GPIO_NUM_4
 
 /**
  * @fn int strend(const char *s, const char *t)
@@ -35,6 +38,7 @@ enum WakeUpMode { WakeTimer, WakeMotion, WakeOther };
 bool WaitingOnUpdate = false;
 
 static void connectToWiFi(const char * ssid, const char * pwd);
+
 static void notify(String message);
 
 static void updateMode();
@@ -80,15 +84,14 @@ WakeUpMode wakeup_reason() {
 
 void setup() {
   Serial.begin(115200);
-  pinMode(PIR, INPUT);
+  pinMode(PIR, INPUT_PULLDOWN);
   pinMode(LED, OUTPUT);
 
-  digitalWrite(LED, HIGH);
 
   WakeUpMode wake = wakeup_reason();
 
   esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
-  esp_sleep_enable_ext0_wakeup(GPIO_NUM_14, HIGH);
+  esp_sleep_enable_ext0_wakeup(PIR_GPIO , HIGH);
 
   tp.DotStar_SetPower( false );
 
@@ -102,6 +105,7 @@ void setup() {
       esp_deep_sleep_start();
     }
   } else if (wake == WakeMotion) {
+    digitalWrite(LED, HIGH);
     connectToWiFi(ssid, pass);
 
     notify("motion");
@@ -109,6 +113,10 @@ void setup() {
     if (hasUpdates()) {
       updateMode();
     } else {
+      do {
+        Serial.println("wait for motion");
+        delay(1000); // delay 5 more seconds for motion to timeout
+      } while(digitalRead(PIR) == HIGH);
       esp_deep_sleep_start();
     }
   } else {
@@ -190,8 +198,6 @@ void notify(String message) {
 
   if (sender.connect(IPAddress(255,255,255,255), 1500)) {
     // sending our broadcast message to anyone listening
-    sender.print(localIP.toString() + ":" + message);
-    sender.print(localIP.toString() + ":" + message);
     sender.print(localIP.toString() + ":" + message);
     sender.close();
     Serial.println("sent motion alarm");

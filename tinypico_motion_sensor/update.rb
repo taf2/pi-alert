@@ -10,19 +10,23 @@ if device_ip.nil?
 end
 
 loop { 
-  socket = UDPSocket.new
-  socket.send("request:update", 0, device_ip, UDP_PORT)
   begin
-    Timeout.timeout(0.4) do
-      text, sender = socket.recvfrom(16)
-      if text == 'Ack:Update'
-        puts "ack update!"
-        exit 0
+    socket = UDPSocket.new
+    socket.send("request:update", 0, device_ip, UDP_PORT)
+    begin
+      Timeout.timeout(0.4) do
+        text, sender = socket.recvfrom(16)
+        if text == 'Ack:Update'
+          puts "ack update!"
+          exit 0
+        end
       end
+    rescue Timeout::Error => e
     end
-  rescue Timeout::Error => e
+    socket.close
+  rescue Errno::EHOSTUNREACH => e
+    print("x")
   end
-  socket.close
   sleep 0.1
   print(".")
 }
