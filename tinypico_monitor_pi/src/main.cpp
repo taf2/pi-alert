@@ -73,7 +73,7 @@
 #define BCOEFFICIENT 3950
 
 #define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds
-#define TIME_TO_SLEEP  60      // Time ESP32 will go to sleep (in seconds)
+#define TIME_TO_SLEEP  200      // Time ESP32 will go to sleep (in seconds)
                                // NOTE: don't set this too low or else the processor won't give the pi enough time between pi:dead to actually boot
                               // adjust this smaller for debug longer for production
 
@@ -81,6 +81,7 @@ unsigned int interval = 0;
 bool healthCheckMode = false;
 bool healthCheckStartUpMode = false;
 int samples[NUMSAMPLES];
+int sleep_extra = 1;
 
 static void signalPIOn();
 static void signalPIOff();
@@ -315,7 +316,7 @@ void powerCycle() {
 #endif
   gpio_hold_dis(PI_EN_POWER_GPIO);
   digitalWrite(PI_EN_POWER, LOW);
-  for (int i = 0; i < 5; ++i) {
+  for (int i = 0; i < 15; ++i) {
 #ifdef HAS_LED
     digitalWrite(LED, HIGH);
     delay(500);
@@ -405,8 +406,10 @@ void checkBattery() {
     notify(String("pi:bat:low:") + (isCharging ? "charging:" : "draining:") + picoVolts);
 
     // go to sleep until we have more battery
-    gpio_hold_en(LED_GPIO);
+    gpio_hold_dis(LED_GPIO);
+    digitalWrite(LED, LOW);
     //gpio_deep_sleep_hold_en();
+    esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR * 10);
     doFinalUpdateModeOrSleep();
   } else {
     IsPowerGood = true;
@@ -414,6 +417,9 @@ void checkBattery() {
   }
 #else
   float picoVolts = tp.GetBatteryVoltage();
+  // https://forum.arduino.cc/t/battery-level-check-using-arduino/424054/3
+  // Voltage --- Charge state 4.2 V --- 100 % 4.1 V --- 90 % 4.0 V --- 80 % 3.9 V --- 60 % 3.8 V --- 40 % 3.7 V --- 20 % 3,6 V --- 0 %
+  // so under 3.8 is 20% charge
 
   picoVolts = roundf(picoVolts * 100) / 100;
   if (picoVolts > 3.7) {
