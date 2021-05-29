@@ -11,8 +11,8 @@
 
 #define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds
 #define TIME_TO_SLEEP  60       // Time ESP32 will go to sleep (in seconds)
-#define LED 14
-#define LED_GPIO GPIO_NUM_14
+#define LED 23
+#define LED_GPIO GPIO_NUM_23
 #define PIR 4
 #define PIR_GPIO GPIO_NUM_4
 
@@ -107,6 +107,7 @@ void setup() {
   } else if (wake == WakeMotion) {
     digitalWrite(LED, HIGH);
     connectToWiFi(ssid, pass);
+    digitalWrite(LED, LOW);
 
     notify("motion");
 
