@@ -107,7 +107,6 @@ void setup() {
   } else if (wake == WakeMotion) {
     digitalWrite(LED, HIGH);
     connectToWiFi(ssid, pass);
-    digitalWrite(LED, LOW);
 
     notify("motion");
 
@@ -118,6 +117,7 @@ void setup() {
         Serial.println("wait for motion");
         delay(1000); // delay 5 more seconds for motion to timeout
       } while(digitalRead(PIR) == HIGH);
+      digitalWrite(LED, LOW);
       esp_deep_sleep_start();
     }
   } else {

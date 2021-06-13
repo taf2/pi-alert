@@ -12,15 +12,33 @@
 #include <ArduinoOTA.h>
 
 #include <Adafruit_INA260.h>
+/*
+ * Wiring INA260 to TinyPico
+ *
+ * SCL pin to pin 22
+ * SDA pin to pin 21
+ */
 
+/*
+ * Wiring INA260 to Adafruit BQ24074 Universal USB DC Solar Charger Breakout
+ *
+ * VIN+ to battery side
+ * VIN- to BQ24074 side
+ * VCC to OUT pin on BQ24074
+ * GND to GND pin on BQ24074
+ *
+ * Can add a toggle switch to disconnect battery on GND wire 
+ */
 #define LED_FULL 15
 #define LED_HALF 27
 #define LED_LOW 26
 #define BUTTON 14
+#define VOLT_METER 18 // attached the NPN transistor to enable/disable 
 #define POWER_GOOD 4
+#define CHARGING 33
 
 #define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds
-#define TIME_TO_SLEEP  120       // Time ESP32 will go to sleep (in seconds)
+#define TIME_TO_SLEEP  600       // Time ESP32 will go to sleep (in seconds)
 static void notify(String message);
 
 static const char *ssid = "<%= @config[:ssid] %>";
@@ -72,6 +90,7 @@ void checkReadings(bool activeLED=false) {
   float volts   = ina260.readBusVoltage();
   float power   = ina260.readPower();
   int   powerGood = digitalRead(POWER_GOOD);
+  float charging  = analogRead(CHARGING);
 
   Serial.print("Current: ");
   Serial.print(current);
@@ -85,13 +104,19 @@ void checkReadings(bool activeLED=false) {
   Serial.print(power);
   Serial.println(" mW");
 
+  Serial.println(String("charging:") + charging);
+  if (powerGood == LOW) {
+    Serial.println("power is good");
+  }
+
   Serial.println();
   if (activeLED) {
     Serial.println("pressed button");
+    digitalWrite(VOLT_METER, HIGH);
 
     if (volts > 3952) {
       digitalWrite(LED_FULL, HIGH);
-    } else if (3500) {
+    } else if (volts > 3500) {
       digitalWrite(LED_HALF, HIGH);
     } else {
       digitalWrite(LED_LOW, HIGH);
@@ -100,7 +125,9 @@ void checkReadings(bool activeLED=false) {
     delay(5000); // keep active for 5 seconds
 
   }
-  notify(String("bat:cur") + ":" + current + ":volts:" + volts + ":power:" + power + ((powerGood == LOW) ? ":pg" : ":pb"));
+  notify(String("bat:cur") + ":" + current + ":volts:" + volts + ":power:" + power +
+         ((powerGood == LOW) ? ":pg" : ":pb") +
+         ((charging > 1100) ? (String(":charg:") + charging)  : (String(":drain:") + charging) ));
 }
 
 void setup() {
@@ -110,7 +137,9 @@ void setup() {
   pinMode(LED_HALF, OUTPUT);
   pinMode(LED_LOW, OUTPUT);
   pinMode(BUTTON, INPUT);
-  pinMode(POWER_GOOD, INPUT_PULLDOWN);
+  pinMode(VOLT_METER, OUTPUT);
+  pinMode(POWER_GOOD, INPUT);
+  pinMode(CHARGING, INPUT);
 
   while (!ina260.begin()) {
     Serial.println("Couldn't find INA260 chip");
@@ -154,6 +183,7 @@ void ConnectToWiFi(const char * ssid, const char * pwd) {
       delay(5000);
       ESP.restart();
     }
+
     // this has a dramatic effect on packet RTT
     WiFi.setSleep(WIFI_PS_NONE);
     localIP = WiFi.localIP();
