@@ -257,8 +257,8 @@ void checkHealth(int light) {
           Serial.println("PI is on");
 #ifdef HAS_LED
           gpio_hold_dis(LED_GPIO);
-          digitalWrite(LED, HIGH);
-          gpio_hold_en(LED_GPIO);
+          //digitalWrite(LED, HIGH);
+          //gpio_hold_en(LED_GPIO);
 #endif
           notify((String("pi:on:t:") + c) + ":l:" + light  + ":v:" + picoVolts + (turnedFanOn ? ":FanON" : "")); // send pi on with the temp
         }
