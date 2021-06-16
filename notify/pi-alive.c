@@ -20,7 +20,8 @@
 #define PWROFF 37 // pwr GPIO 26, wiring 25
 
 int interval = 0;
-int shutdown = 0;
+int pingInterval = 0;
+int stopPI = 0;
 
 int ping(const char *ip);
 
@@ -52,23 +53,35 @@ void loop() {
   }
 
   if (digitalRead(PWROFF) == HIGH) {
-    if (shutdown > 2) { 
+    if (stopPI > 2) { 
       printf("start shutdown sequence\n");
       system("/usr/bin/sudo /usr/sbin/halt");
     }
-    shutdown++;
+    stopPI++;
   } else {
-    shutdown = 0;
+    stopPI = 0;
   }
 
-  //delay(1000);
-  int status = ping("192.168.2.1"); //system("ping -c 1 192.168.2.1 > /dev/null 2>&1");
-  if (status == 0) {
-    // success
-    digitalWrite(PI_HERE, HIGH);
+  ++pingInterval;
+
+  if (pingInterval % 10 == 0) {
+
+    //delay(1000);
+    printf("ping interval\n");
+    //int status = ping("192.168.2.1"); //system("ping -c 1 192.168.2.1 > /dev/null 2>&1");
+    int status = system("ping -c 1 192.168.2.1 > /dev/null 2>&1");
+    if (status == 0) {
+      // success
+      digitalWrite(PI_HERE, HIGH);
+    } else {
+      // failure
+      digitalWrite(PI_HERE, LOW);
+    }
+
+    pingInterval = 0;
+
   } else {
-    // failure
-    digitalWrite(PI_HERE, LOW);
+    digitalWrite(PI_HERE, HIGH);
   }
 
 }
@@ -92,9 +105,9 @@ int main(int argc, char**argv) {
 
   setup();
 
-  delay(1000);
 
 	while (1) {
+    delay(1000);
     loop();
 	}
 
@@ -184,8 +197,10 @@ int ping(const char *ip) {
 
     printf("\n");
 
+    close(s);
     return 0;
   } else {
+    close(s);
     perror("Response Error");
     return 2;
   }
