@@ -1,3 +1,6 @@
+# Definitely don't use any of this it's just a bunch of rubish
+
+
 # Pi Alert
  You will need a Backblaze account and a Twilio account.  You'll need a raspberrypi with a PIR motion sensor and a camera
 
