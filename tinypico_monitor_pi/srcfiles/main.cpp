@@ -73,10 +73,14 @@
 #define BCOEFFICIENT 3950
 
 #define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds
-#define TIME_TO_SLEEP  200      // Time ESP32 will go to sleep (in seconds)
+#define TIME_TO_SLEEP  20      // Time ESP32 will go to sleep (in seconds)
                                // NOTE: don't set this too low or else the processor won't give the pi enough time between pi:dead to actually boot
                               // adjust this smaller for debug longer for production
-
+/*
+ * useing lastPiState to conditionally notify pi state information e.g. if the number of times the pi has been on state is either 0 or 10 we'll notify
+ **/
+#define NOTIFY_INTERVAL 10 /* every 10 cycles we'll ping notify on */
+RTC_DATA_ATTR unsigned int pi_on_count = 0;
 unsigned int interval = 0;
 bool healthCheckMode = false;
 bool healthCheckStartUpMode = false;
@@ -257,13 +261,26 @@ void checkHealth(int light) {
           Serial.println("PI is on");
 #ifdef HAS_LED
           gpio_hold_dis(LED_GPIO);
-          //digitalWrite(LED, HIGH);
-          //gpio_hold_en(LED_GPIO);
+          digitalWrite(LED, HIGH);
+          gpio_hold_en(LED_GPIO);
 #endif
-          notify((String("pi:on:t:") + c) + ":l:" + light  + ":v:" + picoVolts + (turnedFanOn ? ":FanON" : "")); // send pi on with the temp
+          if (pi_on_count==0) {
+            notify((String("pi:on:t:") + c) + ":l:" + light  + ":v:" + picoVolts + (turnedFanOn ? ":FanON" : "")); // send pi on with the temp
+            ++pi_on_count;
+            if (pi_on_count > 10) {
+              pi_on_count = 0;
+            }
+            doFinalUpdateModeOrSleep();
+          } else {
+            ++pi_on_count;
+            if (pi_on_count > 10) {
+              pi_on_count = 0;
+            }
+            gpio_deep_sleep_hold_en();
+            esp_deep_sleep_start();
+          }
         }
         //gpio_deep_sleep_hold_en();
-        doFinalUpdateModeOrSleep();
       }
     } else {
       // it appears on good news
