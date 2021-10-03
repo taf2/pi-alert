@@ -1,7 +1,6 @@
 /**
  * watching pin 8, 10 and using 12 on the raspberry pi to know whether the pi is running normally
  * 
- * #define HAS_VERTER  - when using a adafruit verter as main power source
  * #define HAS_LIGHT_SENSOR - when not using a pi with a built in IR camera  with light sensor then we need our own sensors
  * #define HAS_LED - when we attach a status led on the outside of the camera
  * #define HAS_FAN_NPN - when the transistor to control the fan is npn instead of pnp
@@ -18,6 +17,7 @@
 #include <HTTPClient.h>
 #include <AsyncUDP.h>
 #include <ArduinoOTA.h>
+#include <Adafruit_INA260.h>
 
 
 // status led for the tinypico to tell us if the pi is on or off
@@ -49,12 +49,9 @@
 #define FAN_PIN 15 // pull low to open transistor to turn fan power on via the 3.3v power rail
 #define FAN_PIN_GPIO GPIO_NUM_15
 
-#ifdef HAS_VERTER
-// from the verter e.g. our power source we'll pull power_save high if our power is NOT good
-#define POWER_GOOD 22
-#define POWER_SAVE 5
-#define POWER_SAVE_GPIO GPIO_NUM_5
-#endif
+// change the pins on the I2C bus since we're already using pin 22 as a singal pin to tell the PI to shutdown
+#define I2C_SDA 25
+#define I2C_SCL 27
 
 // control power to the pi if we pull this low the pi will turn off normally we hold this high to keep the pi on unless we're low bat
 #define PI_EN_POWER 18
@@ -115,6 +112,8 @@ IPAddress localIP;
 bool IsConnected = false;
 
 TinyPICO tp = TinyPICO();
+TwoWire ina260Wire = TwoWire(0);
+Adafruit_INA260 ina260 = Adafruit_INA260();
 
 void setup() {
   Serial.begin(115200);
@@ -128,12 +127,6 @@ void setup() {
 #endif
   pinMode(PI_TURN_OFF, OUTPUT);
   pinMode(PI_EN_POWER, OUTPUT);
-#ifdef HAS_VERTER
-  pinMode(POWER_GOOD, INPUT_PULLDOWN);
-  pinMode(POWER_SAVE, INPUT_PULLUP);
-  digitalWrite(POWER_SAVE, HIGH);
-  gpio_hold_en(POWER_SAVE_GPIO);
-#endif
 #ifdef HAS_LIGHT_SENSOR
   pinMode(PHOTOCELL, INPUT);
   pinMode(PI_DAY_LIGHT_ON, OUTPUT);
@@ -144,6 +137,10 @@ void setup() {
 
   digitalWrite(PI_TURN_OFF, LOW);
   fanOff();
+
+  ina260Wire.begin(I2C_SDA, I2C_SCL);
+  ina260.begin(0x40, &ina260Wire);
+
 
   esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
 }
@@ -227,6 +224,9 @@ void checkHealth(int light) {
   gpio_hold_en(FAN_PIN_GPIO);
 
   float picoVolts = tp.GetBatteryVoltage();
+  float current = ina260.readCurrent();
+  float volts   = ina260.readBusVoltage();
+  float power   = ina260.readPower();
 
   int on = digitalRead(PI_ON);
   if (on == HIGH) {
@@ -265,7 +265,7 @@ void checkHealth(int light) {
           gpio_hold_en(LED_GPIO);
 #endif
           if (pi_on_count==0) {
-            notify((String("pi:on:t:") + c) + ":l:" + light  + ":v:" + picoVolts + (turnedFanOn ? ":FanON" : "")); // send pi on with the temp
+            notify((String("pi:on:t:") + c) + ":l:" + light  + ":v:" + picoVolts + (turnedFanOn ? ":FanON" : "") + + ":bat:cur:" + current + ":volts:" + volts + ":power:" + power); // send pi on with the temp
             ++pi_on_count;
             if (pi_on_count > 10) {
               pi_on_count = 0;
@@ -304,7 +304,7 @@ void checkHealth(int light) {
     if (turnedFanOn) {
       fanOff();
     }
-    notify(String("pi:dead") + ":" + picoVolts + (turnedFanOn ? ":FanON" : ""));
+    notify(String("pi:dead") + ":" + picoVolts + (turnedFanOn ? ":FanON" : "FanOFF"));
 #ifdef HAS_LED
     gpio_hold_dis(LED_GPIO);
     for (int i = 0; i < 5; ++i) {
@@ -358,11 +358,9 @@ void powerGood() {
   digitalWrite(PI_TURN_OFF, LOW);
   gpio_hold_en(PI_TURN_OFF_GPIO);
 
-#ifdef HAS_VERTER
-  gpio_hold_dis(POWER_SAVE_GPIO);
-  digitalWrite(POWER_SAVE, HIGH);
-  gpio_hold_en(POWER_SAVE_GPIO);
-#endif
+  gpio_hold_dis(LED_GPIO);
+  digitalWrite(LED, HIGH);
+  gpio_hold_en(LED_GPIO);
 }
 void powerNotGood() {
   signalPIOn();
@@ -383,63 +381,15 @@ static void signalPIOff() {
 }
 
 void checkBattery() {
-#ifdef HAS_VERTER
-  int lowbat = digitalRead(POWER_GOOD); // get value of battery reading  HIGH indicates low battery LOW indicates plenty of battery
- 
-  IsPowerGood = false;
-  if (lowbat == HIGH) {
-    Serial.println("power may not be good");
-    float picoVolts = tp.GetBatteryVoltage();
-    bool isCharging = tp.IsChargingBattery();
-    char buf[512];
-
-    picoVolts = roundf(picoVolts * 100) / 100;
-    int roundedVolts = (int)(picoVolts * 10);
-    if (isCharging) {
-      IsPowerGood = true;
-      powerGood();
-      return;
-    } else if (roundedVolts >= 41 && !isCharging) {
-      //digitalWrite(LED, LOW);
-      //gpio_hold_en(LED_GPIO);
-      // pico battery is fully charged and not draining or charging so even though we're getting power not good
-      // from the verter... power does actually appear good to us... proceed as normal
-      IsPowerGood = true;
-      powerGood();
-      return;
-    }
-    snprintf(buf, 512, "power not good: %f and %s and %d", picoVolts, (isCharging ? "charging" : "draining"), roundedVolts);
-    Serial.println(buf);
-#ifdef HAS_LED
-    gpio_hold_dis(LED_GPIO);
-    digitalWrite(LED, LOW);
-#endif
-    // turning down systems - raspberry pi off
-    signalPIOff();
-    delay(10000); // give the PI 10 seconds to shutdown and then we cut the power
-    powerNotGood();
-
-    // tell everyone we're low battery and then we go bye bye
-    notify(String("pi:bat:low:") + (isCharging ? "charging:" : "draining:") + picoVolts);
-
-    // go to sleep until we have more battery
-    gpio_hold_dis(LED_GPIO);
-    digitalWrite(LED, LOW);
-    //gpio_deep_sleep_hold_en();
-    esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR * 10);
-    doFinalUpdateModeOrSleep();
-  } else {
-    IsPowerGood = true;
-    powerGood();
-  }
-#else
   float picoVolts = tp.GetBatteryVoltage();
   // https://forum.arduino.cc/t/battery-level-check-using-arduino/424054/3
   // Voltage --- Charge state 4.2 V --- 100 % 4.1 V --- 90 % 4.0 V --- 80 % 3.9 V --- 60 % 3.8 V --- 40 % 3.7 V --- 20 % 3,6 V --- 0 %
   // so under 3.8 is 20% charge
+  // 3.4 is dead
+  // https://learn.adafruit.com/li-ion-and-lipoly-batteries/voltages
 
   picoVolts = roundf(picoVolts * 100) / 100;
-  if (picoVolts > 3.7) {
+  if (picoVolts > 3.4) {
     IsPowerGood = true;
     powerGood();
   } else {
@@ -462,7 +412,6 @@ void checkBattery() {
     //gpio_deep_sleep_hold_en();
     doFinalUpdateModeOrSleep();
   }
-#endif
 }
 
 void loop() {

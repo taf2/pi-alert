@@ -15,6 +15,8 @@
 #define LED_GPIO GPIO_NUM_23
 #define PIR 4
 #define PIR_GPIO GPIO_NUM_4
+#define YELLOW_WIRE 25
+#define WHITE_WIRE 14
 
 /**
  * @fn int strend(const char *s, const char *t)
@@ -93,7 +95,7 @@ void setup() {
   esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
   esp_sleep_enable_ext0_wakeup(PIR_GPIO , HIGH);
 
-  tp.DotStar_SetPower( false );
+  tp.DotStar_SetPower( true );
 
   // if we were woken by timer go into check updates mode for 10 seconds
   if (wake == WakeTimer) {
