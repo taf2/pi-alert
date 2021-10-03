@@ -11,6 +11,7 @@
 #include <unistd.h> /* close() */
 #include <string.h> /* memset() */
 #include <signal.h>
+#include <pthread.h>
 
 //for Mac OS X
 #include <stdlib.h>
@@ -20,67 +21,26 @@
 #define LOCAL_SERVER_PORT 1500
 #define MAX_MSG 100
 
-#define IR1 19 // GPIO 10
-#define IR2 21 // GPIO 9
-#define IR3 15 // GPIO 22
-#define IR4 24 // GPIO 8
-#define RLED  11 // GPIO 17
-#define LIGHT_SENSOR  26 // GPIO 7
-#define LIGHT_TINY  40 // GPIO 21
-
-// receive a single from trinket m0 that our battery is about to go out
-#define PWROFF 37 // pwr GPIO 26, wiring 25
+#define IR_LED 22 // GPIO 25 pull high to enable
 
 static char buffer[1024];
 
 void cleanup(int signum, siginfo_t *info, void *ptr) {
   write(STDERR_FILENO, "cleanup\n", sizeof("cleanup\n"));
 
-  digitalWrite(RLED, LOW);
-  digitalWrite(IR1, LOW);
-  digitalWrite(IR2, LOW);
-  digitalWrite(IR3, LOW);
-  digitalWrite(IR4, LOW);
+  digitalWrite(IR_LED, LOW);
 
   exit(0);
 }
 
-// rpi doesn't have an analog gpio so we have to estimate lightness... maybe we'll have the pir sensor arduinio's send in the packet...
-int isLight() {
-  int light = LOW;
-  int count = 0;
-  int max = 150000;
-  pinMode(LIGHT_SENSOR, OUTPUT);
-  digitalWrite(LIGHT_SENSOR, LOW);
-  delay(100);
-  pinMode(LIGHT_SENSOR, INPUT);
-  do {
-    light = digitalRead(LIGHT_SENSOR);
-    count++;
-  } while (count < max && light == LOW);
-  printf("count: %d %d\n", count, light);
-  return count < max ? HIGH : LOW;
-}
-
 void captureRecording(int videoPoint) {
+  digitalWrite(IR_LED, HIGH); // enable IR_LED (they have light sensor's that will turn on the LED or not automatically
   // capture 10 seconds of video
-  int light = isLight();
-  if (light == HIGH) {
-	  printf("it's light out no need for the ir leds\n");
-	  digitalWrite(IR1, LOW);
-	  digitalWrite(IR2, LOW);
-	  digitalWrite(IR3, LOW);
-	  digitalWrite(IR4, LOW);
-  } else {
-	  printf("it's freakin dark out turn on ir leds!\n");
-	  digitalWrite(IR1, HIGH);
-	  digitalWrite(IR2, HIGH);
-	  digitalWrite(IR3, HIGH);
-	  digitalWrite(IR4, HIGH);
-  }
   printf("start recording\n");
   memset(buffer,'\0',1023);
-  snprintf(buffer, 1023, "/usr/bin/raspivid --rotation 0 -o /var/www/html/video%d.h264 -w 640 -h 480 -t 10000", videoPoint);
+  snprintf(buffer, 1023, "/usr/bin/ffmpeg -y -video_size 1024x768 -i /dev/video0 -f alsa -channels 1 -sample_rate 44100 -i hw:1 -vf \"drawtext=text='%{localtime}': x=(w-tw)/2: y=lh: fontcolor=white: fontsize=24\" -af \"volume=15.0\" -c:v h264_omx -b:v 2500k -c:a libmp3lame -b:a 128k -map 0:v -map 1:a -f flv -t 00:00:20 /tmp/out%d.raw", videoPoint);
+
+  //snprintf(buffer, 1023, "/usr/bin/raspivid --rotation 0 -o /var/www/html/video%d.h264 -w 640 -h 480 -t 10000", videoPoint);
   system(buffer);
   printf("done recording\n");
   // convert the video to mp4 for easier playback
@@ -90,6 +50,7 @@ void captureRecording(int videoPoint) {
 //  snprintf(buffer, 1023, "/usr/bin/ffmpeg -y -framerate 24 -i /var/www/html/video%d.h264 -c copy /var/www/html/video%d.mp4", vid
 //  system(buffer);
   //digitalWrite(YELLOWLED, LOW);
+  digitalWrite(IR_LED, LOW); // cut the power
 }
 
 int main(int argc, char *argv[]) {
@@ -105,18 +66,15 @@ int main(int argc, char *argv[]) {
   _sigact.sa_flags = SA_SIGINFO;
 
   sigaction(SIGINT, &_sigact, NULL);
+  sigaction(SIGQUIT, &_sigact, NULL);
 
   wiringPiSetupPhys();
 
-  pinMode(RLED, OUTPUT);
-  pinMode(PWROFF, INPUT);
-  //pullUpDnControl(LIGHT_SENSOR, PUD_DOWN);
-  pinMode(LIGHT_SENSOR, INPUT);
-  pinMode(IR1, OUTPUT);
-  pinMode(IR2, OUTPUT);
-  pinMode(IR3, OUTPUT);
-  pinMode(IR4, OUTPUT);
-  pinMode(RLED, OUTPUT);
+  pinMode(IR_LED, OUTPUT);
+
+  printf("starting up waiting 5 seconds...\n");
+  delay(5000);
+  printf("it's ready\n");
 
   /* socket creation */
   sd=socket(AF_INET, SOCK_DGRAM, 0);
@@ -162,13 +120,13 @@ int main(int argc, char *argv[]) {
 
     /* print received message */
     printf("%s: from %s:UDP%u : %s \n", argv[0],inet_ntoa(cliAddr.sin_addr), ntohs(cliAddr.sin_port),msg);
-    digitalWrite(RLED, HIGH);
-    captureRecording(recordings++);
-    digitalWrite(RLED, LOW);
-    delay(4000);
+    if (strstr(msg, "motion")) {
+      captureRecording(recordings++);
+      delay(4000);
 
-    if (recordings > 100) {
-	    recordings = 0; // wrap around
+      if (recordings > 100) {
+        recordings = 0; // wrap around
+      }
     }
 
   }/* end of server infinite loop */

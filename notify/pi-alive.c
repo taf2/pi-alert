@@ -19,6 +19,9 @@
 #define RES_PIN 12 // switch PI_HERE to HIGH when monitor goes HIGH
 #define PWROFF 37 // pwr GPIO 26, wiring 25
 
+#define IR_LED1 16 // GPIO 23 pull high to enable 
+#define IR_LED2 22 // GPIO 25 pull high to enable 
+
 int interval = 0;
 int pingInterval = 0;
 int stopPI = 0;
