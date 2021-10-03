@@ -50,3 +50,27 @@ time as to keep a constant disk on the nodes
 # servos
 sudo apt-get install libffi-dev
 pip3 install PCA9685-driver
+
+# PI Audio with USB
+
+https://makersportal.com/blog/2018/8/23/recording-audio-on-the-raspberry-pi-with-python-and-a-usb-microphone
+## maybe using gstreamer
+and something like:
+  gst-launch-1.0 -e autovideosrc ! queue ! videoconvert ! mkv. autoaudiosrc ! queue ! audioconvert ! mkv. matroskamux name=mkv ! filesink location=test.mkv sync=false
+  # with the USB mic 
+
+sudo apt-get install libx264-dev libjpeg-dev ibgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev gstreamer1.0-plugins-ugly gstreamer1.0-tools
+sudo apt-get install gstreamer1.0-plugins-bad
+sudo apt-get install gstreamer1.0-alsa
+sudo apt-get install gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav
+
+interesting https://raspberrypi.stackexchange.com/questions/25962/sync-audio-video-from-pi-camera-usb-microphone
+
+# nice: https://www.reddit.com/r/raspberry_pi/comments/nfjc1n/i_finally_figured_out_how_to_stream_from/
+ffmpeg  -video_size 1280x720 -i /dev/video0 \
+        -f alsa -channels 1 -sample_rate 44100 -i hw:1 \
+        -vf "drawtext=text='%{localtime}': x=(w-tw)/2: y=lh: fontcolor=white: fontsize=24" \
+        -af "volume=15.0" \
+        -c:v h264_omx -b:v 2500k \
+        -c:a libmp3lame -b:a 128k \
+        -map 0:v -map 1:a -f flv out.mp4

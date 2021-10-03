@@ -75,21 +75,21 @@ end
 # expects json data but can also receive multipart/form-data
 # with a file parameter
 post '/capture' do
-  request.body.rewind
+
   if counter  > 100
     counter = 0
   end
 
   epoch_time = Time.now.to_i
-  filename = "./public/#{counter}.jpg"
-
-  puts "writing #{filename} @ #{Time.now}"
-  File.open(filename, "wb") {|f| f << request.body.read }
-
-  puts request.env.inspect
-  # HTTP_X_NODE"=>"TinyPICO-Fountain", "HTTP_X_SEQ"=>"1
   node = request.env['HTTP_X_NODE']
   seq  = request.env['HTTP_X_SEQ']
+  filename = "./public/#{node}-#{params['file']['filename']}" #"./public/#{counter}.jpg"
+
+  puts "writing #{filename} @ #{Time.now}"
+  File.open(filename, "wb") {|f| f <<  params['file']['tempfile'].read }#request.body.read }
+
+  #puts request.env.inspect
+  # HTTP_X_NODE"=>"TinyPICO-Fountain", "HTTP_X_SEQ"=>"1
 
   capture = Nodes[node] || NodeCapture.new(node)
   Nodes[node] = capture
