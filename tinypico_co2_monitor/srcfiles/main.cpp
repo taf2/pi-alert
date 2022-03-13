@@ -50,6 +50,7 @@
 #define SHARP_SS   5
 #define BLACK 0
 #define WHITE 1
+#define ZIPCODE "21146"
 
 static void ConnectToWiFi(const char * ssid, const char * pwd);
 static void notify(String message);
@@ -66,6 +67,7 @@ static IPAddress localIP;
 static bool IsConnected = false;
 static WiFiUDP ntpUDP;
 static NTPClient timeClient(ntpUDP);
+static time_t lastTZFetch = 0;
 
 static TinyPICO tp = TinyPICO();
 static Adafruit_SharpMem display(SHARP_SCK, SHARP_MOSI, SHARP_SS, 400, 240);
@@ -134,6 +136,9 @@ void fetchWeather(const char *zipcode, NTPClient &timeClient) {
   int _timezoneOffset = obj[String("timezone")].as<int>();
   timeClient.setTimeOffset(_timezoneOffset);
 	Serial.println("finished updating timezone");
+
+  // fetch the weather once every 24 hours
+  lastTZFetch = timeClient.getEpochTime();
 }
 
 void setup() {
@@ -185,7 +190,7 @@ void setup() {
   timeClient.update(); // get current time refreshed
   //-14400
   //timeClient.setTimeOffset(-18000);
-  fetchWeather("21146", timeClient);
+  fetchWeather(ZIPCODE, timeClient);
 }
 
 String message;
@@ -255,6 +260,9 @@ void loop() {
           timeMessage = String(buf);
           strftime(buf, sizeof(buf), "\n   %a %b, %d", &ts);
           dateMessage = String(buf);
+          if (currentSecond - lastTZFetch > 86400) { // not perfect but not terrible for timezone change detection...
+            fetchWeather(ZIPCODE, timeClient);
+          }
         } else {
           timeMessage = String("loading...");
         }
