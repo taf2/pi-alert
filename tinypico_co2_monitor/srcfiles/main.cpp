@@ -90,6 +90,52 @@ void printSerialNumber(uint16_t serial0, uint16_t serial1, uint16_t serial2) {
   Serial.println();
 }
 
+void fetchWeather(const char *zipcode, NTPClient &timeClient) {
+  WiFiClient client;
+  HTTPClient http;
+  char url[128]; // usually 98 bytes so this should be safe
+  snprintf(url, 128, "http://api.openweathermap.org/data/2.5/weather?zip=%s,us&appid=%s", zipcode, "<%= @config[:weather] %>");
+  http.setConnectTimeout(10000);// timeout in ms
+  http.setTimeout(10000); // 10 seconds
+  http.begin(client, url);
+  int r =  http.GET();
+	if (r < 0) {
+		Serial.println("error fetching weather");
+    http.end();
+		return;
+	}
+  String body = http.getString();
+  http.end();
+  // TODO: get the weather icon
+  /*
+   * {"coord":{"lon":-76.56,"lat":39.08},
+   *  "weather":[{"id":802,"main":"Clouds","description":"scattered clouds","icon":"03d"}],
+   *  "base":"stations",
+   *  "main":{"temp":284.8,"feels_like":280.93,"temp_min":283.15,"temp_max":286.48,"pressure":1020,"humidity":82},
+   *  "visibility":10000,"wind":{"speed":5.1,"deg":180},
+   *  "clouds":{"all":40},"dt":1604237734,
+   *  "sys":{"type":1,"id":5056,"country":"US","sunrise":1604230454,"sunset":1604268317},
+   *  "timezone":-18000,"id":0,"name":"Severna Park","cod":200}
+   */
+  Serial.println("weather response");
+  Serial.println(body);
+  Serial.println(body.length());
+  StaticJsonDocument<1024> doc;
+  DeserializationError error = deserializeJson(doc, body);
+  if (error) {
+    Serial.print(F("deserializeJson() failed: "));
+    Serial.println(error.f_str());
+    return;
+  }
+
+  JsonObject obj = doc.as<JsonObject>();
+  // contents -> { quotes -> [ { quote: "...", length: , author: ".."  },  ] }
+  //JsonObject main = obj[String("main")].as<JsonObject>();
+  int _timezoneOffset = obj[String("timezone")].as<int>();
+  timeClient.setTimeOffset(_timezoneOffset);
+	Serial.println("finished updating timezone");
+}
+
 void setup() {
   Serial.begin(115200);
   tp.DotStar_SetPower( false );
@@ -139,7 +185,7 @@ void setup() {
   timeClient.update(); // get current time refreshed
   //-14400
   //timeClient.setTimeOffset(-18000);
-  timeClient.setTimeOffset(-14400);
+  fetchWeather("21146", timeClient);
 }
 
 String message;
