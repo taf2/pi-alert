@@ -51,6 +51,9 @@
 #define BLACK 0
 #define WHITE 1
 #define ZIPCODE "21146"
+#define LED 4
+#define MODE 14
+#define FAN 23
 
 static void ConnectToWiFi(const char * ssid, const char * pwd);
 static void notify(String message);
@@ -155,6 +158,11 @@ void setup() {
   char errorMessage[256];
 
   scd4x.begin(Wire);
+  pinMode(LED, OUTPUT);
+  pinMode(MODE, INPUT_PULLDOWN);
+  pinMode(FAN, OUTPUT);
+  digitalWrite(LED, LOW);
+  digitalWrite(FAN, LOW);
 
   // stop potentially previously started measurement
   error = scd4x.stopPeriodicMeasurement();
@@ -197,7 +205,37 @@ String message;
 String timeMessage;
 String dateMessage;
 
+bool modeIsHigh = false;
+int modeHighCount = 0;
+bool fanOn = false;
+
 void loop() {
+  int mode = digitalRead(MODE);
+  if (mode == HIGH) {
+    if (modeIsHigh) {
+      modeIsHigh = false;
+      digitalWrite(LED, LOW);
+    } else {
+      if (modeHighCount == 0) {
+        modeIsHigh = true;
+        digitalWrite(LED, HIGH);
+      } else if (modeHighCount > 5) {
+        if (fanOn) {
+          Serial.println("toggle fan OFF");
+          digitalWrite(FAN, LOW);
+          fanOn = false;
+        } else {
+          Serial.println("toggle fan ON");
+          digitalWrite(FAN, HIGH);
+          fanOn = true;
+        }
+        delay(1000); // pause after toggling
+      }
+    }
+    modeHighCount++;
+  } else {
+    modeHighCount = 0;
+  }
   if (WaitingOnUpdate) {
     Serial.println("waiting on updates");
     ArduinoOTA.handle();
